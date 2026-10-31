@@ -1,0 +1,58 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# App data, downloaded artifacts, and local verification output
+/.local/
+/.cache/
+/.artifacts/
+/downloads/
+/runtimes/
+/data/
+/logs/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+
+# Build and tool output
+target/
+node_modules/
+dist/
+build/
+coverage/
+.next/
+.turbo/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pnpm-store/
+*.tsbuildinfo
+
+# Editor and OS state
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+
+# Dependency lockfiles are intentionally tracked.
+# Keep reproducible SQL/JSON fixture sources, not generated database files.

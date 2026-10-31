@@ -1,0 +1,21 @@
+{
+  "checked_on": "2026-10-31",
+  "purpose": "Research evidence; not a runnable installation catalog",
+  "payloads_downloaded": false,
+  "publisher_signatures_verified": false,
+  "local_probes": {
+    "os": "Windows 10 Pro 10.0.19045",
+    "architecture": "x64",
+    "node": {"path": "C:\\Program Files\\nodejs\\node.exe", "version": "24.13.0", "executed": true},
+    "python": {"path": "C:\\Python\\Python312\\python.exe", "version": "3.12.3", "executed": true, "imports_passed": ["ssl", "sqlite3", "venv"], "sqlite_version": "3.45.1"},
+    "mac_tested": false
+  },
+  "artifact_observations": [
+    {"component": "node", "version": "24.22.2", "target": "windows-x64", "filename": "node-v24.22.2-win-x64.zip", "source": "https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt", "sha256": "ca1bff5d8ead13c9f2ea404a176db46bd430704d5b5113734049fa365e7799e2", "immutable_download_url_verified": false},
+    {"component": "node", "version": "24.22.2", "target": "macos-arm64", "filename": "node-v24.22.2-darwin-arm64.tar.gz", "source": "https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt", "sha256": "aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a", "immutable_download_url_verified": false},
+    {"component": "uv", "version": "0.13.6", "target": "windows-x64", "url_from_release_api": "https://github.com/astral-sh/uv/releases/download/0.13.6/uv-x86_64-pc-windows-msvc.zip", "sha256": "a2a8820d5eea32f08ef467ef3b7f66883a9b076d5737a2fc2fbb5f458d1bb50f"},
+    {"component": "uv", "version": "0.13.6", "target": "macos-arm64", "url_from_release_api": "https://github.com/astral-sh/uv/releases/download/0.13.6/uv-aarch64-apple-darwin.tar.gz", "sha256": "60fbd5c8a1ed681845eea28d9d622fcde03c51e91a43465b64a1e17db1ed3472"},
+    {"component": "python", "version": "3.12.16", "build": "20261026", "target": "windows-x64", "url_from_release_api": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-pc-windows-msvc-install_only_stripped.tar.gz", "sha256": "1f2ab53880fc67ea323398c6388e05af28addc99a8e389209f08a51fdff4b149"},
+    {"component": "python", "version": "3.12.16", "build": "20261026", "target": "macos-arm64", "url_from_release_api": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-aarch64-apple-darwin-install_only_stripped.tar.gz", "sha256": "353d5f1b4fd2715e7053f12f068435d5bbad16b91e057006b5d01e0925709a7e"}
+  ]
+}
