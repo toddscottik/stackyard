@@ -27,6 +27,7 @@
 
 # Build and tool output
 target/
+apps/desktop/src-tauri/gen/
 node_modules/
 dist/
 build/

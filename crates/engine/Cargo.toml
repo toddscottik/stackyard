@@ -1,0 +1,26 @@
+[package]
+name = "localdev-engine"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "localdev-engine"
+path = "src/main.rs"
+
+[dependencies]
+localdev-core.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+localdev-core.workspace = true
+tokio.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Threading",
+] }

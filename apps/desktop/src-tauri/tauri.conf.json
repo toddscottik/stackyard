@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Local Dev",
+  "version": "0.1.0",
+  "identifier": "app.localdev.desktop",
+  "build": {
+    "beforeDevCommand": "npm run vite:dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Local Dev",
+        "width": 840,
+        "height": 640
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

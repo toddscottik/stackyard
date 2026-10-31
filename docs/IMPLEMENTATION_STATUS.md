@@ -18,7 +18,7 @@ Updated: 31 October 2026.
 | Stage | Status | Next concrete work |
 | --- | --- | --- |
 | 0: package feasibility | Partial. Windows runtime and server probes accepted 31 October 2026. Mac metadata is recorded and every Mac launch is pending or blocked | Run `scripts/verification/macos/packages.sh` on the M1 Pro. Resolve macOS Apache and MySQL archives before approving those providers |
-| 1: foundation | Not started | Toolchain inspection/setup, workspace, shared models, engine/CLI/desktop skeleton |
+| 1: foundation | Partial. Windows skeleton runs as of 1 November 2026. Mac toolchain and desktop open are pending | Finish the Mac toolchain check and open the desktop there. Then Stage 2 package providers |
 | 2: packages | Not started | Existing selection plus managed Node/Python and compatible language tools |
 | 3: project runner | Not started | Process lifecycle, dependency operations, and four application fixtures |
 | 4: desktop workflows | Not started | Components/projects/logs with real backend actions |
@@ -36,7 +36,7 @@ Updated: 31 October 2026.
 - No approved standalone Apache package for macOS 14.5 arm64. The Mac research found source and Windows binaries only, and no Homebrew Sonoma bottle. A relocatable arm64 archive is still a packaging gate.
 - No selected/approved MySQL package for macOS 14.5 arm64. The downloads selector was not completed, so no archive URL is recorded.
 - PostgreSQL on macOS: `postgresql-18.6-5-osx-binaries.zip` was observed with no published digest and no arm64 marker in the filename. The Windows x64 18.6 zip did launch on this machine.
-- User confirmed Rust is not installed; install Rust/Cargo during Stage 1. Managed uv 0.13.6 ran from the artifact directory with downloads disabled; it is not a system-shell install. C++ Build Tools and WebView2 remain uninspected.
+- Rust 1.99.1 is installed with rustup on this Windows machine. WebView2 runtime 156.0.4314.50 and Visual Studio 2022 Community C++ tools were already present. The Mac Rust toolchain and Xcode Command Line Tools are still unchecked. Managed uv 0.13.6 remains an artifact-directory helper, not a system-shell install.
 - Windows pnpm 12.16.1 and pip (`six==1.17.0` in a disposable venv) smoke checks passed. PHP extension and Memcached native artifacts remain unverified. macOS pnpm/pip execution remains pending.
 
 ## Handoff format for future work
@@ -54,3 +54,22 @@ Commands reviewed, not re-run in full: `runtimes.ps1 -Action Verify` and `server
 Outcome: Windows combinations in the package verification integration table are accepted with the limitations recorded there. macOS launches, macOS Apache, macOS MySQL, and the unsigned Mac PostgreSQL zip stay pending or blocked. Stage 0 is not fully complete.
 
 Next task: S1-BOOTSTRAP. Inspect the C++ build tools and WebView2, install Rust/Cargo through its normal installer, and add the workspace skeleton. Mac package execution stays a separate blocked task.
+
+## Stage 1 coordinator handoff
+
+1 November 2026. Slice: S1-BOOTSTRAP on Windows 10 Pro build 19045 x64.
+
+Rustup 1.29.2 installed the stable toolchain. `rustc 1.99.1 (58cf8f9c3 2026-10-13)` is pinned in `rust-toolchain.toml`. WebView2 runtime `156.0.4314.50` and Visual Studio 2022 Community with the C++ tools component were already installed. The first `rustup-init` attempt returned Windows access denied; a following `rustup toolchain install stable` succeeded.
+
+Commands and outcomes:
+
+- `cargo test --workspace --exclude localdev-desktop` passed, including schema reopen, a second engine refusing the same data directory, settings surviving restart, and a Windows pipe DACL check that does not grant Everyone, Authenticated Users, or Administrators.
+- `cargo clippy --workspace --exclude localdev-desktop --all-targets -- -D warnings` passed. `cargo clippy -p localdev-desktop -- -D warnings` passed.
+- `npm --prefix apps/desktop run build` passed.
+- `cargo check -p localdev-desktop` passed after adding `apps/desktop/src-tauri/icons/icon.ico`.
+- CLI smoke against `.artifacts/S1-BOOTSTRAP/cli-smoke`: two `status` calls reported pid 74132; after `stop` and a new `status`, pid 89508 and `last_event` was `setting_put display_name`.
+- `npm --prefix apps/desktop run dev` launched `localdev-desktop.exe` with window title `Local Dev`. `localdev status` then reported the same engine pid, 91424, and data directory `%LOCALAPPDATA%\localdev`.
+
+The temporary package name is `localdev`. Providers are not created yet. Tray hide and explicit Quit policy are still Stage 4. A second Windows account was not used to try the pipe. GitHub Actions has not been run. macOS 14.5 has not built or opened the desktop.
+
+Next task: on the M1 Pro, install Rust and confirm Xcode Command Line Tools, then run `cargo test --workspace` and `npm --prefix apps/desktop run dev`. After that, Stage 2 can select existing Node or Python and download the other.

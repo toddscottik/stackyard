@@ -2,7 +2,7 @@
 
 A planned desktop application for managing native development runtimes and services on Windows 10 and macOS. Personal use first: Next.js, Node.js, Flask, FastAPI, Apache, MySQL, PostgreSQL, and SQLite, with existing installations or managed downloads.
 
-Application implementation has not started. Start development with these documents:
+Stage 1 has a placeholder desktop named Local Dev. Start development with these documents:
 
 Repository working rules are in [AGENTS.md](AGENTS.md). For parallel development, use the [agent workflow](docs/AGENT_WORKFLOW.md) and [work queue](docs/WORK_QUEUE.md). Downloaded packages and disposable test state belong under ignored `.artifacts/` directories.
 
@@ -12,6 +12,17 @@ Repository working rules are in [AGENTS.md](AGENTS.md). For parallel development
    [Dependency management](docs/DEPENDENCY_MANAGEMENT.md) specifies pnpm/pip workflows and PHP/Composer/native extensions, including Memcached server/client separation.
 4. [Product plan](docs/PRODUCT_PLAN.md) and [review](docs/PRODUCT_PLAN_REVIEW.md) — research and broader roadmap. The development plan takes precedence for current implementation scope.
 
-First task: Stage 0 package feasibility and disposable runtime tests on Windows 10 x64 and macOS 14.5 arm64. See the development plan for the copyable agent prompt.
+Stage 0 recorded Windows package probes. macOS package execution is still pending on the M1 Pro. The current implementation task is the Stage 1 foundation.
 
-Development prerequisites: Git and Node/npm are available on the current Windows machine. Rust/Cargo must be installed during Stage 1; C++ Build Tools and WebView2 still need inspection. Check the Mac's Rust and Xcode Command Line Tools separately. Stage 0 runtime probes do not need Rust. No application build/test commands exist yet; Stage 1 will document them here.
+Development commands, from the repository root:
+
+```text
+cargo test --workspace
+cargo run -p localdev-cli -- status
+cargo run -p localdev-cli -- serve
+cargo run -p localdev-cli -- stop
+npm --prefix apps/desktop install
+npm --prefix apps/desktop run dev
+```
+
+`localdev` is a temporary package name until branding is chosen. The engine state defaults to `%LOCALAPPDATA%\localdev` on Windows and `~/Library/Application Support/localdev` on macOS. Tests use disposable directories. Rust is installed with rustup during Stage 1; the pinned toolchain is `rust-toolchain.toml`. WebView2 and Visual Studio 2022 C++ tools were already present on the Windows 10 machine. The Mac still needs its own Rust and Xcode Command Line Tools check. A build on a newer macOS runner does not replace testing on macOS 14.5.
