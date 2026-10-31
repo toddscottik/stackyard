@@ -17,7 +17,7 @@ Updated: 31 October 2026.
 
 | Stage | Status | Next concrete work |
 | --- | --- | --- |
-| 0: package feasibility | Partial: research/local reuse probes only | Download/verify payloads; disposable launch tests; resolve Mac Apache/MySQL artifacts |
+| 0: package feasibility | Partial. Windows runtime and server probes accepted 31 October 2026. Mac metadata is recorded and every Mac launch is pending or blocked | Run `scripts/verification/macos/packages.sh` on the M1 Pro. Resolve macOS Apache and MySQL archives before approving those providers |
 | 1: foundation | Not started | Toolchain inspection/setup, workspace, shared models, engine/CLI/desktop skeleton |
 | 2: packages | Not started | Existing selection plus managed Node/Python and compatible language tools |
 | 3: project runner | Not started | Process lifecycle, dependency operations, and four application fixtures |
@@ -31,14 +31,26 @@ Updated: 31 October 2026.
 
 ## Open evidence gaps
 
-- No downloaded runtime/server payload has been verified and launched by this task.
-- No execution on the Mac yet. User has confirmed testing availability.
-- No approved standalone Apache package for macOS 14.5 arm64.
-- No selected/approved MySQL package for macOS 14.5 arm64.
-- PostgreSQL per-platform archive URLs/digests and Windows 10 behavior need confirmation.
-- User confirmed Rust is not installed; install Rust/Cargo during Stage 1. uv was not found in the current shell; other desktop build prerequisites remain uninspected.
-- pnpm/pip workflow execution and PHP extension/Memcached native artifacts remain unverified on the target machines.
+- Windows Apache, MySQL, and PostgreSQL launches are accepted with two integrity limits: MySQL 8.4.13 was checked with the publisher MD5 sidecar because no SHA256 sidecar was published, and PostgreSQL 18.6 ran on Windows 10 even though the upstream table names Windows Server. Details: `docs/evidence/S0-WIN-SERVERS.md`.
+- No execution on the Mac yet. User has confirmed testing availability. S0-MAC-PACKAGES re-fetched metadata from Windows on 31 October 2026 and left every launch check pending.
+- No approved standalone Apache package for macOS 14.5 arm64. The Mac research found source and Windows binaries only, and no Homebrew Sonoma bottle. A relocatable arm64 archive is still a packaging gate.
+- No selected/approved MySQL package for macOS 14.5 arm64. The downloads selector was not completed, so no archive URL is recorded.
+- PostgreSQL on macOS: `postgresql-18.6-5-osx-binaries.zip` was observed with no published digest and no arm64 marker in the filename. The Windows x64 18.6 zip did launch on this machine.
+- User confirmed Rust is not installed; install Rust/Cargo during Stage 1. Managed uv 0.13.6 ran from the artifact directory with downloads disabled; it is not a system-shell install. C++ Build Tools and WebView2 remain uninspected.
+- Windows pnpm 12.16.1 and pip (`six==1.17.0` in a disposable venv) smoke checks passed. PHP extension and Memcached native artifacts remain unverified. macOS pnpm/pip execution remains pending.
 
 ## Handoff format for future work
 
 Append: date; stage/slice; files changed; exact tests/commands; target OS/architecture; outcomes; unresolved issues; next task. Link detailed logs where needed. Do not mark an OS passed based only on compilation or vendor documentation.
+
+## Stage 0 coordinator handoff
+
+31 October 2026. Slice: S0-INTEGRATE after S0-WIN-RUNTIMES, S0-WIN-SERVERS, and S0-MAC-PACKAGES.
+
+Files changed by the coordinator: `docs/WORK_QUEUE.md`, `docs/IMPLEMENTATION_STATUS.md`, `docs/PACKAGE_VERIFICATION.md`. Probe files remain `scripts/verification/windows/runtimes.ps1`, `scripts/verification/windows/servers.ps1`, `scripts/verification/macos/packages.sh`, and `docs/evidence/S0-*.md`. Downloads stay in gitignored `.artifacts/`.
+
+Commands reviewed, not re-run in full: `runtimes.ps1 -Action Verify` and `servers.ps1 -Action Verify` on Windows 10 Pro build 19045 x64, both previously exit 0. Spot-checks: relocated Node `v24.22.2`, relocated Python `3.12.16`, and matching SHA256 or MD5 for the Node, Apache, MySQL, and PostgreSQL archives.
+
+Outcome: Windows combinations in the package verification integration table are accepted with the limitations recorded there. macOS launches, macOS Apache, macOS MySQL, and the unsigned Mac PostgreSQL zip stay pending or blocked. Stage 0 is not fully complete.
+
+Next task: S1-BOOTSTRAP. Inspect the C++ build tools and WebView2, install Rust/Cargo through its normal installer, and add the workspace skeleton. Mac package execution stays a separate blocked task.

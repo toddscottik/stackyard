@@ -1,15 +1,15 @@
 # Work queue
 
-The coordinator owns this file. Status is separate from stage completion. Claim a task by setting an owner and status before assigning writes. This initial queue is prepared for future work; no workers are active.
+The coordinator owns this file. Status is separate from stage completion. Claim a task by setting an owner and status before assigning writes. Stage 0 Windows probes and integration were completed on 31 October 2026. Mac execution remains blocked on the M1 Pro.
 
 | ID | Status / owner | Scope and writable paths | Acceptance / dependency |
 | --- | --- | --- | --- |
-| S0-WIN-RUNTIMES | Ready / unassigned | `scripts/verification/windows/runtimes.ps1`, `docs/evidence/S0-WIN-RUNTIMES.md` | Verify managed Node/Python payloads, reuse local runtimes, test pnpm/pip in disposable environments; record exact artifacts and commands |
-| S0-WIN-SERVERS | Ready / unassigned | `scripts/verification/windows/servers.ps1`, `docs/evidence/S0-WIN-SERVERS.md` | Apache HTTP/proxy modules; MySQL/PostgreSQL initialize/query/restart/stop against disposable data; no system-service takeover |
-| S0-MAC-PACKAGES | Ready for research; execution needs Mac / unassigned | `scripts/verification/macos/`, `docs/evidence/S0-MAC-PACKAGES.md` | Native arm64 artifacts on macOS 14.5; resolve Apache/MySQL delivery; validate actual execution on M1 Pro |
-| S0-INTEGRATE | Waiting for probe results / coordinator | Verification report, validated catalog inputs, status and queue | Review evidence, approve or reject target combinations, retain incomplete Mac checks, agree shared fixture format |
-| S1-BOOTSTRAP | Waiting for Stage 0 toolchain findings / unassigned | Stage 1 source/toolchain files; explicit paths assigned before start | Rust/Cargo and platform prerequisites; Tauri shell, core contracts, engine/CLI skeleton; may proceed independently of unresolved DB packaging |
+| S0-WIN-RUNTIMES | Done / coordinator | `scripts/verification/windows/runtimes.ps1`, `docs/evidence/S0-WIN-RUNTIMES.md` | Windows 10 x64 accepted 31 October 2026. Managed Node 24.22.2, CPython 3.12.16, uv 0.13.6, and pnpm 12.16.1 matched publisher digests and launched. Local Node 24.13.0 and Python 3.12.3 were reused unchanged. macOS launch remains pending |
+| S0-WIN-SERVERS | Done / coordinator | `scripts/verification/windows/servers.ps1`, `docs/evidence/S0-WIN-SERVERS.md` | Windows 10 x64 accepted 31 October 2026. Apache 2.4.69, MySQL 8.4.13, and PostgreSQL 18.6 launched on loopback against disposable data. No Windows service was registered. MySQL integrity is MD5-only. Postgres is not in the upstream Windows 10 certification table |
+| S0-MAC-PACKAGES | Blocked / coordinator | `scripts/verification/macos/`, `docs/evidence/S0-MAC-PACKAGES.md` | Research accepted 31 October 2026. Execution is blocked on the M1 Pro. Apache and MySQL archive URLs are unresolved. The PostgreSQL Mac zip has no published digest |
+| S0-INTEGRATE | Done / coordinator | `docs/PACKAGE_VERIFICATION.md`, `docs/IMPLEMENTATION_STATUS.md`, this queue | Windows combinations accepted or limited as recorded in the package verification integration section. Mac checks remain pending or blocked. Fixture convention recorded there |
+| S1-BOOTSTRAP | Ready / unassigned | Stage 1 source and toolchain files; assign exact paths before editing | Rust/Cargo, C++ build tools, and WebView2 inspection. Tauri shell, core contracts, engine/CLI skeleton. Independent of the unresolved Mac Apache, MySQL, and PostgreSQL packages |
 
 All workers may read existing documentation. Runtime caches and test data belong under `.artifacts/<task-id>/` and stay out of Git. Root instructions, root dependency manifests/lockfiles, shared APIs, PACKAGE_VERIFICATION.md, IMPLEMENTATION_STATUS.md, and this queue remain coordinator-owned unless explicitly reassigned.
 
-The scripts listed above are planned deliverables, not existing commands. Each must provide help, explicit paths/ports, non-destructive defaults, and structured results. Do not treat missing software or a compiler as a passed check.
+`scripts/verification/windows/runtimes.ps1`, `scripts/verification/windows/servers.ps1`, and `scripts/verification/macos/packages.sh` exist. Each provides help, explicit paths or ports, non-destructive defaults, and structured results. Do not treat missing software or a compiler as a passed check.
