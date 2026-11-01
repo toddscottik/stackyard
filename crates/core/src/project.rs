@@ -4,14 +4,16 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+use crate::deps::resolve_manager;
 use crate::error::{Error, Result};
 use crate::install::DEFAULT_PROJECT;
-use crate::manifest::{load_manifest, Manifest, RuntimeRole, ServiceSpec};
+use crate::manifest::{load_manifest, ManagerKind, Manifest, RuntimeRole, ServiceSpec};
 use crate::store::{PackageRecord, ProcessRecord, ProjectRecord, Store};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServiceView {
     pub id: String,
+    pub runtime: String,
     pub state: String,
     pub pid: Option<u32>,
     pub port: Option<u16>,
@@ -19,10 +21,21 @@ pub struct ServiceView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelectionView {
+    pub role: String,
+    pub package_id: String,
+    pub version: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectView {
     pub id: String,
     pub name: String,
     pub root: String,
+    pub manager: String,
+    pub manager_detail: String,
+    pub selections: Vec<SelectionView>,
     pub services: Vec<ServiceView>,
 }
 
@@ -98,8 +111,12 @@ pub fn list_project_views(data_dir: &Path) -> Result<Vec<ProjectView>> {
                 id: project.id,
                 name: project.name,
                 root: project.root,
+                manager: String::new(),
+                manager_detail: String::new(),
+                selections: Vec::new(),
                 services: vec![ServiceView {
                     id: "-".to_string(),
+                    runtime: String::new(),
                     state: "invalid".to_string(),
                     pid: None,
                     port: None,
@@ -313,18 +330,70 @@ fn view_one(store: &Store, project: &ProjectRecord) -> Result<ProjectView> {
             )
         })
         .collect();
+    let (manager, manager_detail) = manager_fields(Path::new(&project.root), &manifest);
     Ok(ProjectView {
         id: project.id.clone(),
         name: manifest.name,
         root: project.root.clone(),
+        manager,
+        manager_detail,
+        selections: project_selections(store, &project.id)?,
         services,
     })
+}
+
+fn manager_fields(root: &Path, manifest: &Manifest) -> (String, String) {
+    match resolve_manager(root, manifest) {
+        Ok(kind) => (
+            kind.as_str().to_string(),
+            manager_detail(root, manifest, kind),
+        ),
+        Err(err) => (String::new(), err.to_string()),
+    }
+}
+
+fn manager_detail(root: &Path, manifest: &Manifest, kind: ManagerKind) -> String {
+    if manifest.manager == Some(kind) {
+        return format!("{} is chosen in stackyard.toml", kind.as_str());
+    }
+    match kind {
+        ManagerKind::Npm => "npm because package-lock.json is present".to_string(),
+        ManagerKind::Pnpm if root.join("pnpm-lock.yaml").is_file() => {
+            "pnpm because pnpm-lock.yaml is present".to_string()
+        }
+        ManagerKind::Pnpm => "pnpm, the default for a Node project without a lockfile".to_string(),
+        ManagerKind::Pip => "pip in this project's virtual environment".to_string(),
+        ManagerKind::Uv => "uv because uv.lock is present".to_string(),
+    }
+}
+
+fn project_selections(store: &Store, project_id: &str) -> Result<Vec<SelectionView>> {
+    let mut found = Vec::new();
+    for role in ["node", "python", "pnpm", "uv"] {
+        let Some(package_id) = store
+            .get_selection(project_id, role)?
+            .or(store.get_selection(DEFAULT_PROJECT, role)?)
+        else {
+            continue;
+        };
+        let Some(package) = store.get_package(&package_id)? else {
+            continue;
+        };
+        found.push(SelectionView {
+            role: role.to_string(),
+            package_id,
+            version: package.version,
+            source: package.source,
+        });
+    }
+    Ok(found)
 }
 
 fn service_view(service: &ServiceSpec, row: Option<&ProcessRecord>) -> ServiceView {
     let Some(row) = row else {
         return ServiceView {
             id: service.id.clone(),
+            runtime: service.runtime.as_str().to_string(),
             state: "stopped".to_string(),
             pid: None,
             port: None,
@@ -333,6 +402,7 @@ fn service_view(service: &ServiceSpec, row: Option<&ProcessRecord>) -> ServiceVi
     };
     ServiceView {
         id: service.id.clone(),
+        runtime: service.runtime.as_str().to_string(),
         state: row.state.clone(),
         pid: row.pid.and_then(|pid| u32::try_from(pid).ok()),
         port: row.port.and_then(|port| u16::try_from(port).ok()),
@@ -495,6 +565,8 @@ command = ["node", "server.js"]
         let view = import_project(&data, &root).expect("import");
         assert_eq!(view.id, "node-http");
         assert!(view.root.contains("пример"));
+        assert_eq!(view.manager, "pnpm");
+        assert!(view.manager_detail.contains("default"));
         let again = import_project(&data, &root).expect("reimport");
         assert_eq!(again.id, view.id);
         let _ = fs::remove_dir_all(&data);

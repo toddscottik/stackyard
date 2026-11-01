@@ -2,17 +2,71 @@
   color: #1c1917;
   background: #f6f3ee;
   font-family: "Segoe UI", sans-serif;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 body {
   margin: 0;
 }
 
+.shell {
+  display: grid;
+  grid-template-columns: 12rem 1fr;
+  min-height: 100vh;
+}
+
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1.25rem 0.8rem;
+  background: #ebe6df;
+}
+
+.brand {
+  margin: 0 0.4rem 0.8rem;
+  font-weight: 650;
+}
+
+button.nav,
+button.quiet,
+button.current {
+  background: transparent;
+  color: inherit;
+}
+
+button.nav.current,
+button.current {
+  background: #1c1917;
+  color: #f6f3ee;
+}
+
+.engine {
+  margin-top: auto;
+  color: #57534e;
+  font-size: 0.8rem;
+}
+
 main {
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 2rem 1.25rem 3rem;
+  padding: 1.5rem 1.4rem 3rem;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(14rem, 18rem) 1fr;
+  gap: 1.5rem;
+}
+
+@media (max-width: 760px) {
+  .shell,
+  .split {
+    grid-template-columns: 1fr;
+  }
+
+  nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
 }
 
 h1 {
@@ -66,6 +120,103 @@ button {
   border-radius: 0.25rem;
   background: #1c1917;
   color: #f6f3ee;
+}
+
+button:disabled {
+  opacity: 0.45;
+}
+
+nav button.nav {
+  width: 100%;
+  text-align: left;
+}
+
+select {
+  font: inherit;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #a8a29e;
+  border-radius: 0.25rem;
+  background: #fff;
+}
+
+:focus-visible {
+  outline: 2px solid #1c1917;
+  outline-offset: 2px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.6rem 0 1rem;
+}
+
+.project-list,
+.services,
+.actions {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+
+.project-list button,
+.services button {
+  width: 100%;
+  text-align: left;
+}
+
+.path,
+.meta,
+.note,
+.empty {
+  color: #44403c;
+}
+
+.detail {
+  margin: 0.25rem 0 0.6rem;
+  white-space: pre-wrap;
+}
+
+.output {
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.75rem;
+  background: #fff;
+  border: 1px solid #d6d3d1;
+  border-radius: 0.25rem;
+  white-space: pre-wrap;
+}
+
+.banner,
+.progress {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.banner {
+  padding: 0.6rem 0.75rem;
+  background: #fee2e2;
+  border-radius: 0.25rem;
+}
+
+.progress {
+  padding: 0.6rem 0.75rem;
+  background: #e7e5e4;
+  border-radius: 0.25rem;
+}
+
+.check {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.runtime {
+  display: grid;
+  gap: 0.3rem;
+  margin-bottom: 0.8rem;
 }
 
 [role="alert"] {

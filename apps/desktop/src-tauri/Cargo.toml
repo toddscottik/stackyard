@@ -15,5 +15,5 @@ tauri-build = { version = "2.7.4", features = [] }
 [dependencies]
 stackyard-core = { path = "../../../crates/core" }
 serde.workspace = true
-tauri = { version = "2.12.5", features = [] }
+tauri = { version = "2.12.5", features = ["tray-icon"] }
 tokio.workspace = true

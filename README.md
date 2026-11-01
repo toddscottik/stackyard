@@ -12,7 +12,7 @@ Repository working rules are in [AGENTS.md](AGENTS.md). For parallel development
    [Dependency management](docs/DEPENDENCY_MANAGEMENT.md) specifies pnpm/pip workflows and PHP/Composer/native extensions, including Memcached server/client separation.
 4. [Product plan](docs/PRODUCT_PLAN.md) and [review](docs/PRODUCT_PLAN_REVIEW.md) — research and broader roadmap. The development plan takes precedence for current implementation scope.
 
-Stage 0 recorded Windows package probes. macOS package execution is still pending on the M1 Pro. Stage 3 runs projects and dependency commands. Windows and macOS process checks for that stage are still pending; the Linux evidence is in `docs/evidence/S3-PROJECTS.md`.
+Stage 0 recorded Windows package probes. macOS package execution is still pending on the M1 Pro. Stage 4 is the desktop: Projects, Components, and Settings call the engine. Closing the window hides it; Quit stops managed projects unless background mode is on. Linux UI evidence is in `docs/evidence/S4-DESKTOP.md`. Windows and macOS window checks are still pending.
 
 Development commands, from the repository root:
 
