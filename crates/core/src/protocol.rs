@@ -195,6 +195,7 @@ pub enum Command {
         project_id: String,
         scope: String,
     },
+    Diagnostics,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,6 +273,9 @@ pub enum Outcome {
     },
     Updates {
         notices: Vec<crate::updates::UpdateNotice>,
+    },
+    Diagnostics {
+        report: String,
     },
 }
 

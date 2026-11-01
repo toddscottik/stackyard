@@ -1458,6 +1458,7 @@ function Settings({
   const [editor, setEditor] = useState("code");
   const [background, setBackground] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [report, setReport] = useState("");
 
   useEffect(() => {
     if (!desktop) {
@@ -1538,6 +1539,32 @@ function Settings({
           {saved ? <span className="hint">Saved</span> : null}
         </div>
       </form>
+      <section className="block" aria-label="Diagnostics">
+        <h2>Diagnostics</h2>
+        <p className="hint">
+          The report lists projects, packages, and databases. Passwords, private keys, and setting values are left out. It does not change a running project.
+        </p>
+        <button
+          type="button"
+          className="btn"
+          disabled={!desktop}
+          onClick={() => {
+            void api
+              .diagnostics()
+              .then((text) => setReport(text))
+              .catch(onError);
+          }}
+        >
+          Create diagnostics report
+        </button>
+        {report ? (
+          <pre className="report mono" aria-label="Diagnostics report">
+            {report}
+          </pre>
+        ) : (
+          <p className="empty">No report yet.</p>
+        )}
+      </section>
     </>
   );
 }

@@ -25,7 +25,7 @@ Updated: 1 November 2026.
 | 5: Apache/HTTPS | Partial. Linux x86_64 shared Apache, proxy, static rewrite, and generated HTTPS passed on 1 November 2026. Windows catalog pin is the Stage 0 zip and was not launched again. macOS Apache remains blocked | Launch the Windows catalog Apache on Windows 10. Keep macOS blocked until a relocatable arm64 archive exists. System trust and ports 80/443 stay pending |
 | 6: databases | Partial. Linux x86_64 MySQL 8.0.46, PostgreSQL 16.15, and SQLite 3.45.1 passed on 1 November 2026. Windows catalog PostgreSQL was not launched again. MySQL has no SHA256 catalog entry. macOS database archives stay blocked | Launch the Windows catalog PostgreSQL on Windows 10. Leave MySQL out of the catalog until a SHA256 exists. Leave macOS blocked until an approved archive exists. Credential Manager and Keychain remain pending |
 | 7: updates/recovery | Partial. Linux x86_64 notice, switch, cleanup, and interrupted-install checks passed on 1 November 2026. No second digest-checked Node or Python pin was downloaded | Download a newer checked Node or Python pin on Windows 10 and switch one project there. Leave macOS pins out until a payload check |
-| 8: personal release | Not started | Real-project acceptance on Windows and Mac |
+| 8: personal release | Partial. Linux x86_64 diagnostics, setup notes, and fixture smoke passed on 1 November 2026. Windows 10 and macOS 14.5 acceptance, the user's projects, and sleep/wake are open | Run the acceptance list on Windows 10 x64 and the M1 Pro running macOS 14.5. Measure startup there with an editor and browser. Do not treat the Linux sample as that gate |
 | 8A: PHP/extensions | Not started | PHP/Composer, native extension profiles, Memcached server/client feasibility and integration |
 | 9: public release | Deferred | Distribution/license decisions, release pipeline and expanded coverage |
 
@@ -143,3 +143,19 @@ Commands and outcomes on this machine:
 Details: `docs/evidence/S7-UPDATES.md` and `docs/decisions/0005-updates.md`.
 
 Next task: add a second digest-checked Node or Python pin only after the payload is verified, then download it on Windows 10 and switch one project. Do not fetch an unchecked upstream release into the catalog. Leave macOS pins out until a payload check.
+
+## Stage 8 worker handoff
+
+1 November 2026. Slice: S8-PERSONAL. Executed on Linux x86_64 (`uname` 6.12.94+, rustc 1.99.1, Node v22.23.4, npm 10.9.9, pnpm 12.16.1, Python 3.12.3). This is not the Windows 10 or macOS 14.5 acceptance machine. `uv` is not installed here.
+
+`diagnostics` lists projects, packages, and databases and strips secret file contents, private keys, and setting values. Setup is `docs/SETUP.md`. Limits are `docs/KNOWN_LIMITATIONS.md`. A fresh `stackyard status` returned in 0.106 seconds. The engine RSS was 11268 kB. Chrome was running; an editor was not. `fixtures/node-http` served `node-http` with npm. `fixtures/flask-app` served `flask-ok` from an app-owned pip environment. `fixtures/next-app` refused pnpm 10.33.4 because `package.json` asks for pnpm 12.16.1, then served HTML with pnpm 12.16.1 and `--frozen-lockfile`.
+
+Commands and outcomes on this machine:
+
+- `cargo test --workspace --exclude stackyard-desktop --offline` passed, including the diagnostics redaction test.
+- `cargo test -p stackyard-desktop --lib --offline` passed. `npx tsc --noEmit` in `apps/desktop` passed.
+- Chrome on the Vite page showed Settings → Diagnostics. Create needs the desktop engine, which that browser does not have.
+
+Details: `docs/evidence/S8-PERSONAL.md` and `docs/decisions/0006-personal-release.md`.
+
+Next task: run this acceptance list on Windows 10 x64 and the M1 Pro running macOS 14.5, including the user's projects, sleep and wake, and a startup measurement with an editor and browser. Do not mark Stage 8 passed from the Linux sample.

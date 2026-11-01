@@ -20,6 +20,8 @@ Stage 6 adds MySQL, PostgreSQL, and SQLite. A managed instance has its own data 
 
 Stage 7 checks the bundled catalog for compatible runtime updates and installs them beside the current version. Switching one project leaves the others. Database versions, external tools, project dependencies, and application updates stay on separate paths. Evidence is in `docs/evidence/S7-UPDATES.md`.
 
+Stage 8 adds setup steps, a redacted diagnostics report, and the personal-release limits. The Windows 10 and macOS 14.5 acceptance run is still open. See [setup](docs/SETUP.md), [known limitations](docs/KNOWN_LIMITATIONS.md), and `docs/evidence/S8-PERSONAL.md`.
+
 Development commands, from the repository root:
 
 ```text
@@ -40,6 +42,7 @@ cargo run -p stackyard-cli -- apache restart
 cargo run -p stackyard-cli -- db list
 cargo run -p stackyard-cli -- db create mysql
 cargo run -p stackyard-cli -- sqlite PROJECT data/app.sqlite
+cargo run -p stackyard-cli -- diagnostics
 cargo run -p stackyard-cli -- updates
 cargo run -p stackyard-cli -- cleanup
 cargo run -p stackyard-cli -- deps recover PROJECT

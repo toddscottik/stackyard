@@ -701,6 +701,14 @@ fn update_notices(outcome: Outcome) -> Result<Vec<UpdateNoticeView>, String> {
 }
 
 #[tauri::command]
+pub async fn export_diagnostics() -> Result<String, String> {
+    match call(Command::Diagnostics).await? {
+        Outcome::Diagnostics { report } => Ok(report),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
 pub async fn list_updates() -> Result<Vec<UpdateNoticeView>, String> {
     update_notices(call(Command::RefreshUpdates).await?)
 }

@@ -9,6 +9,7 @@ mod catalog;
 mod client;
 mod database;
 mod deps;
+mod diagnostics;
 mod error;
 mod install;
 mod logs;
@@ -38,6 +39,7 @@ pub use deps::{
     manifest_fingerprint, plan_dependency, resolve_manager, scope_dir, tool_version, DepAction,
     DepPlan, DepRequest, PlannedCommand, Toolchain,
 };
+pub use diagnostics::{export_diagnostics, LIMITATIONS};
 pub use error::{Error, Result};
 pub use install::{
     adopt_existing, discover_candidates, download_and_install, ensure_default_node_manager,
