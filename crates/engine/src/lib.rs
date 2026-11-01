@@ -16,11 +16,11 @@ use std::sync::Arc;
 use jobs::Jobs;
 use stackyard_core::{
     adopt_existing, catalog_for_host, check_api_version, cleanup_unused, discover_candidates,
-    download_and_install, ensure_default_node_manager, find_package, import_project,
-    list_project_views, mark_install_finished, mark_install_running, prepare_data_dir,
-    project_view, reconcile_interrupted, record_external_version, recv, refresh_updates,
-    remove_package, select_for_project, send, Command, DepAction, Error, Outcome, Progress,
-    Request, Response, Result, Store, API_VERSION,
+    download_and_install, ensure_default_node_manager, export_diagnostics, find_package,
+    import_project, list_project_views, mark_install_finished, mark_install_running,
+    prepare_data_dir, project_view, reconcile_interrupted, record_external_version, recv,
+    refresh_updates, remove_package, select_for_project, send, Command, DepAction, Error, Outcome,
+    Progress, Request, Response, Result, Store, API_VERSION,
 };
 use supervisor::Supervisor;
 use tasks::TaskBoard;
@@ -201,6 +201,9 @@ async fn dispatch(
                 packages: store.list_packages()?,
             })
         }
+        Command::Diagnostics => Ok(Outcome::Diagnostics {
+            report: export_diagnostics(data_dir)?,
+        }),
         Command::RefreshUpdates => Ok(Outcome::Updates {
             notices: refresh_updates(data_dir)?,
         }),

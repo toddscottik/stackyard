@@ -91,6 +91,16 @@ input:disabled {
   font-family: var(--mono);
 }
 
+.report {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  margin: 12px 0 0;
+  padding: 12px;
+  background: var(--raised);
+  border-radius: var(--radius-card);
+}
+
 .app {
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);

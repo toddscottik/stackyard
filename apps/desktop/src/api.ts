@@ -157,6 +157,7 @@ export const api = {
   detachDatabase: (projectId: string, connectionId: string) =>
     invoke<Databases>("database_detach", { projectId, connectionId }),
   useSqlite: (projectId: string, path: string) => invoke<Databases>("sqlite_use", { projectId, path }),
+  diagnostics: () => invoke<string>("export_diagnostics"),
   updates: () => invoke<UpdateNotice[]>("list_updates"),
   cleanupUnused: () => invoke<UpdateNotice[]>("cleanup_unused"),
 };

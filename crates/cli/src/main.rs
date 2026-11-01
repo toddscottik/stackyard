@@ -362,6 +362,23 @@ async fn run() -> stackyard_core::Result<()> {
             );
             Ok(())
         }
+        [cmd] if cmd == "diagnostics" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(&roundtrip(&dir, Command::Diagnostics).await?);
+            Ok(())
+        }
+        [cmd, path] if cmd == "diagnostics" => {
+            let dir = ensure_engine(&data_dir).await?;
+            let outcome = roundtrip(&dir, Command::Diagnostics).await?;
+            let Outcome::Diagnostics { report } = &outcome else {
+                print_outcome(&outcome);
+                return Ok(());
+            };
+            std::fs::write(path, report)
+                .map_err(|source| stackyard_core::Error::io("write diagnostics report", source))?;
+            println!("wrote {}", path);
+            Ok(())
+        }
         [cmd] if cmd == "updates" => {
             let dir = ensure_engine(&data_dir).await?;
             print_outcome(&roundtrip(&dir, Command::RefreshUpdates).await?);
@@ -689,6 +706,7 @@ fn print_help() {
          stackyard deps list ID [--scope DIR]\n  \
          stackyard deps recover ID [--scope DIR]\n  \
          stackyard deps cancel TASK\n  \
+         stackyard diagnostics [PATH]\n  \
          stackyard updates\n  \
          stackyard cleanup\n  \
          stackyard note-external PACKAGE VERSION\n  \
@@ -866,6 +884,9 @@ fn print_outcome(outcome: &Outcome) {
             for file in &view.sqlite {
                 println!("sqlite: {} {}", file.project_id, file.path);
             }
+        }
+        Outcome::Diagnostics { report } => {
+            println!("{report}");
         }
         Outcome::Updates { notices } => {
             if notices.is_empty() {
