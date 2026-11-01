@@ -4,7 +4,7 @@
 
 Build a native local development manager for Windows 10 x64 and macOS 14.5 arm64. It must support existing installations and managed downloads, project processes, Apache, databases, and ecosystem dependency tools. Personal use comes first; public distribution follows.
 
-This repository currently contains planning and evidence, not an implemented app. Do not assume build scripts or source directories already exist.
+The desktop and engine are implemented through Stage 3 on the shared Rust workspace. Do not assume a command exists until it is listed below or in the README.
 
 ## Start each task
 
@@ -54,4 +54,4 @@ User instructions take precedence over repository guidance. For implementation s
 
 Repository inspection: `git status --short --branch`, `git diff --check`, `git diff --stat`.
 
-No app build/test commands exist yet. Stage 0 uses documented, disposable verification scripts. Stage 1 establishes the toolchain and canonical development commands.
+Canonical checks are `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`. Stage 0 verification scripts remain the package probes. The desktop UI build is `npm --prefix apps/desktop run build`.

@@ -175,7 +175,7 @@ pub fn download_and_install(
 }
 
 pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<PackageRecord> {
-    if role != "node" && role != "python" {
+    if !matches!(role, "node" | "python" | "pnpm" | "uv") {
         return Err(Error::InvalidMessage(format!(
             "existing selection for {role} is not supported"
         )));
@@ -186,23 +186,43 @@ pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<
             detail: "executable does not exist".to_string(),
         });
     }
-    let args = if role == "node" {
-        vec!["-v".to_string()]
-    } else {
-        vec![
+    let args = match role {
+        "node" => vec!["-v".to_string()],
+        "python" => vec![
             "-c".to_string(),
             "import sys; print(sys.version.split()[0])".to_string(),
-        ]
+        ],
+        "uv" => vec!["--version".to_string()],
+        _ => vec!["--version".to_string()],
     };
-    let version = command_output(executable, &args, None)?;
+    let probed = command_line(executable, &args)?;
+    let version = if role == "uv" {
+        probed
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or(probed.as_str())
+            .to_string()
+    } else {
+        probed
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
     let id = format!("existing-{role}");
     let store = Store::open(data_dir)?;
     if store.get_package(&id)?.is_some() {
         return Err(Error::AlreadyInstalled { id });
     }
+    let kind = if role == "node" || role == "python" {
+        "runtime"
+    } else {
+        "tool"
+    };
     let record = PackageRecord {
         id: id.clone(),
-        kind: "runtime".to_string(),
+        kind: kind.to_string(),
         name: role.to_string(),
         version,
         target: crate::catalog::current_target().to_string(),
@@ -297,6 +317,21 @@ fn validate_id(id: &str) -> Result<()> {
             "package id {id:?} is not safe"
         )))
     }
+}
+
+fn command_line(executable: &Path, args: &[String]) -> Result<String> {
+    let output = Command::new(executable)
+        .args(args)
+        .output()
+        .map_err(|source| Error::io("run package executable", source))?;
+    if !output.status.success() {
+        return Err(Error::ProbeFailed {
+            path: executable.to_path_buf(),
+            detail: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        });
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(text.lines().next().unwrap_or("").trim().to_string())
 }
 
 fn command_output(

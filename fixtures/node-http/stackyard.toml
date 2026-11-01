@@ -1,0 +1,12 @@
+schema = 1
+name = "node-http"
+
+[[service]]
+id = "web"
+runtime = "node"
+command = ["node", "server.js"]
+working_directory = "."
+ready_path = "/"
+ready_timeout_secs = 20
+port = 0
+restart = "never"

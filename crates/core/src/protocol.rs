@@ -48,6 +48,64 @@ pub enum Command {
     RemovePackage {
         package_id: String,
     },
+    ImportProject {
+        path: String,
+    },
+    ListProjects,
+    ProjectStatus {
+        project_id: String,
+    },
+    StartProject {
+        project_id: String,
+    },
+    StopProject {
+        project_id: String,
+    },
+    RestartProject {
+        project_id: String,
+    },
+    CancelStart {
+        project_id: String,
+    },
+    ReadLogs {
+        project_id: String,
+        service_id: String,
+        offset: u64,
+    },
+    Exec {
+        project_id: String,
+        service_id: String,
+        args: Vec<String>,
+    },
+    DepInstall {
+        project_id: String,
+        scope: String,
+    },
+    DepAdd {
+        project_id: String,
+        package: String,
+        scope: String,
+    },
+    DepRemove {
+        project_id: String,
+        package: String,
+        scope: String,
+    },
+    DepUpdate {
+        project_id: String,
+        package: String,
+        scope: String,
+    },
+    DepList {
+        project_id: String,
+        scope: String,
+    },
+    DepStatus {
+        operation_id: String,
+    },
+    DepCancel {
+        operation_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,6 +147,25 @@ pub enum Outcome {
         catalog_id: String,
         state: String,
         bytes: u64,
+        message: String,
+    },
+    Project {
+        project: crate::project::ProjectView,
+    },
+    Projects {
+        projects: Vec<crate::project::ProjectView>,
+    },
+    Logs {
+        project_id: String,
+        service_id: String,
+        offset: u64,
+        next_offset: u64,
+        text: String,
+    },
+    Task {
+        id: String,
+        label: String,
+        state: String,
         message: String,
     },
 }

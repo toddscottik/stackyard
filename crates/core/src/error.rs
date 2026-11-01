@@ -51,6 +51,20 @@ pub enum Error {
     NotRemovable { id: String, reason: String },
     #[error("could not read version from {}: {detail}", path.display())]
     ProbeFailed { path: PathBuf, detail: String },
+    #[error("project {id} was not found")]
+    ProjectNotFound { id: String },
+    #[error("project manifest is invalid: {detail}")]
+    InvalidManifest { detail: String },
+    #[error("project {project} service {service}: {detail}")]
+    ServiceFailed {
+        project: String,
+        service: String,
+        detail: String,
+    },
+    #[error("127.0.0.1:{port} is already in use")]
+    PortInUse { port: u16 },
+    #[error("project {id} is already {state}")]
+    ProjectBusy { id: String, state: String },
     #[error("{context}: {source}")]
     Io {
         context: &'static str,

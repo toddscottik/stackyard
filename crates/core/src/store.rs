@@ -6,7 +6,7 @@ use rusqlite::{params, Connection};
 use crate::error::{Error, Result};
 use crate::protocol::{validate_setting_key, validate_setting_value};
 
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PackageRecord {
@@ -22,6 +22,27 @@ pub struct PackageRecord {
     pub removable: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectRecord {
+    pub id: String,
+    pub name: String,
+    pub root: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessRecord {
+    pub project_id: String,
+    pub service_id: String,
+    pub state: String,
+    pub pid: Option<i64>,
+    pub process_group: Option<i64>,
+    pub started_at: Option<i64>,
+    pub identity: Option<String>,
+    pub port: Option<i64>,
+    pub exit_code: Option<i64>,
+    pub detail: String,
+}
+
 pub struct Store {
     conn: Connection,
 }
@@ -35,6 +56,8 @@ impl Store {
             .map_err(|source| Error::database("set database busy timeout", source))?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(|source| Error::database("enable foreign keys", source))?;
+        conn.pragma_update(None, "journal_mode", "WAL")
+            .map_err(|source| Error::database("enable write-ahead log", source))?;
         let store = Self { conn };
         store.migrate()?;
         store.retarget_moved_packages()?;
@@ -222,6 +245,172 @@ impl Store {
         Ok(())
     }
 
+    pub fn record_event(&self, kind: &str, detail: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO events (recorded_at, kind, detail) VALUES (?1, ?2, ?3)",
+                params![now_unix(), kind, detail],
+            )
+            .map_err(|source| Error::database("record event", source))?;
+        Ok(())
+    }
+
+    pub fn insert_project(&self, project: &ProjectRecord) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO projects (id, name, root, imported_at) VALUES (?1, ?2, ?3, ?4)",
+                params![project.id, project.name, project.root, now_unix()],
+            )
+            .map_err(|source| Error::database("insert project", source))?;
+        Ok(())
+    }
+
+    pub fn rename_project(&self, id: &str, name: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE projects SET name = ?1 WHERE id = ?2",
+                params![name, id],
+            )
+            .map_err(|source| Error::database("rename project", source))?;
+        Ok(())
+    }
+
+    pub fn get_project(&self, id: &str) -> Result<Option<ProjectRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, root FROM projects WHERE id = ?1")
+            .map_err(|source| Error::database("prepare project read", source))?;
+        let mut rows = stmt
+            .query(params![id])
+            .map_err(|source| Error::database("query project", source))?;
+        match rows
+            .next()
+            .map_err(|source| Error::database("read project row", source))?
+        {
+            Some(row) => map_project(row)
+                .map(Some)
+                .map_err(|source| Error::database("read project", source)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn project_by_root(&self, root: &str) -> Result<Option<ProjectRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, root FROM projects WHERE root = ?1")
+            .map_err(|source| Error::database("prepare project root", source))?;
+        let mut rows = stmt
+            .query(params![root])
+            .map_err(|source| Error::database("query project root", source))?;
+        match rows
+            .next()
+            .map_err(|source| Error::database("read project root", source))?
+        {
+            Some(row) => map_project(row)
+                .map(Some)
+                .map_err(|source| Error::database("read project", source)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn list_projects(&self) -> Result<Vec<ProjectRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, root FROM projects ORDER BY name")
+            .map_err(|source| Error::database("prepare project list", source))?;
+        let rows = stmt
+            .query_map([], map_project)
+            .map_err(|source| Error::database("query projects", source))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|source| Error::database("read project", source))
+    }
+
+    pub fn upsert_process(&self, process: &ProcessRecord) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO processes (
+                    project_id, service_id, state, pid, process_group, started_at,
+                    identity, port, exit_code, detail
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 ON CONFLICT(project_id, service_id) DO UPDATE SET
+                    state = excluded.state,
+                    pid = excluded.pid,
+                    process_group = excluded.process_group,
+                    started_at = excluded.started_at,
+                    identity = excluded.identity,
+                    port = excluded.port,
+                    exit_code = excluded.exit_code,
+                    detail = excluded.detail",
+                params![
+                    process.project_id,
+                    process.service_id,
+                    process.state,
+                    process.pid,
+                    process.process_group,
+                    process.started_at,
+                    process.identity,
+                    process.port,
+                    process.exit_code,
+                    process.detail,
+                ],
+            )
+            .map_err(|source| Error::database("write process", source))?;
+        Ok(())
+    }
+
+    pub fn list_processes(&self, project_id: &str) -> Result<Vec<ProcessRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT project_id, service_id, state, pid, process_group, started_at,
+                        identity, port, exit_code, detail
+                 FROM processes WHERE project_id = ?1 ORDER BY service_id",
+            )
+            .map_err(|source| Error::database("prepare process list", source))?;
+        let rows = stmt
+            .query_map(params![project_id], map_process)
+            .map_err(|source| Error::database("query processes", source))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|source| Error::database("read process", source))
+    }
+
+    pub fn active_processes(&self) -> Result<Vec<ProcessRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT project_id, service_id, state, pid, process_group, started_at,
+                        identity, port, exit_code, detail
+                 FROM processes WHERE state IN ('starting', 'running', 'orphaned')",
+            )
+            .map_err(|source| Error::database("prepare active processes", source))?;
+        let rows = stmt
+            .query_map([], map_process)
+            .map_err(|source| Error::database("query active processes", source))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|source| Error::database("read process", source))
+    }
+
+    pub fn get_selection(&self, project_id: &str, role: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT package_id FROM selections WHERE project_id = ?1 AND role = ?2")
+            .map_err(|source| Error::database("prepare selection", source))?;
+        let mut rows = stmt
+            .query(params![project_id, role])
+            .map_err(|source| Error::database("query selection", source))?;
+        match rows
+            .next()
+            .map_err(|source| Error::database("read selection", source))?
+        {
+            Some(row) => {
+                Ok(Some(row.get(0).map_err(|source| {
+                    Error::database("read selection id", source)
+                })?))
+            }
+            None => Ok(None),
+        }
+    }
+
     pub fn package_is_selected(&self, package_id: &str) -> Result<bool> {
         let count: i64 = self
             .conn
@@ -310,6 +499,41 @@ impl Store {
             tx.commit()
                 .map_err(|source| Error::database("commit migration 2", source))?;
         }
+        if self.schema_version()? < 3 {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .map_err(|source| Error::database("begin migration 3", source))?;
+            tx.execute_batch(
+                "CREATE TABLE projects (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    root TEXT NOT NULL UNIQUE,
+                    imported_at INTEGER NOT NULL
+                );
+                CREATE TABLE processes (
+                    project_id TEXT NOT NULL,
+                    service_id TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    pid INTEGER,
+                    process_group INTEGER,
+                    started_at INTEGER,
+                    identity TEXT,
+                    port INTEGER,
+                    exit_code INTEGER,
+                    detail TEXT NOT NULL,
+                    PRIMARY KEY (project_id, service_id)
+                );",
+            )
+            .map_err(|source| Error::database("apply migration 3", source))?;
+            tx.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?1)",
+                params![now_unix()],
+            )
+            .map_err(|source| Error::database("record migration 3", source))?;
+            tx.commit()
+                .map_err(|source| Error::database("commit migration 3", source))?;
+        }
         Ok(())
     }
 }
@@ -327,6 +551,29 @@ fn map_package(row: &rusqlite::Row<'_>) -> rusqlite::Result<PackageRecord> {
         launch: row.get(7)?,
         digest: row.get(8)?,
         removable: removable != 0,
+    })
+}
+
+fn map_project(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRecord> {
+    Ok(ProjectRecord {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        root: row.get(2)?,
+    })
+}
+
+fn map_process(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProcessRecord> {
+    Ok(ProcessRecord {
+        project_id: row.get(0)?,
+        service_id: row.get(1)?,
+        state: row.get(2)?,
+        pid: row.get(3)?,
+        process_group: row.get(4)?,
+        started_at: row.get(5)?,
+        identity: row.get(6)?,
+        port: row.get(7)?,
+        exit_code: row.get(8)?,
+        detail: row.get(9)?,
     })
 }
 
@@ -359,7 +606,7 @@ mod tests {
         let dir = temp_dir();
         {
             let store = Store::open(&dir).expect("open");
-            assert_eq!(store.schema_version().expect("version"), 2);
+            assert_eq!(store.schema_version().expect("version"), 3);
             store.put("display_name", "Ada").expect("put");
             assert_eq!(
                 store.last_event().expect("event").as_deref(),
@@ -367,7 +614,7 @@ mod tests {
             );
         }
         let store = Store::open(&dir).expect("reopen");
-        assert_eq!(store.schema_version().expect("version"), 2);
+        assert_eq!(store.schema_version().expect("version"), 3);
         assert_eq!(
             store.get("display_name").expect("get").as_deref(),
             Some("Ada")

@@ -1,0 +1,12 @@
+schema = 1
+name = "next-app"
+
+[[service]]
+id = "web"
+runtime = "node"
+command = ["node", "node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", "{port}"]
+working_directory = "."
+ready_path = "/"
+ready_timeout_secs = 60
+port = 0
+restart = "never"
