@@ -18,6 +18,8 @@ Stage 5 publishes projects through one Apache. A `[site]` table proxies a servic
 
 Stage 6 adds MySQL, PostgreSQL, and SQLite. A managed instance has its own data directory and is not stopped when a project stops. An external connection has no process. Evidence is in `docs/evidence/S6-DATABASES.md`.
 
+Stage 7 checks the bundled catalog for compatible runtime updates and installs them beside the current version. Switching one project leaves the others. Database versions, external tools, project dependencies, and application updates stay on separate paths. Evidence is in `docs/evidence/S7-UPDATES.md`.
+
 Development commands, from the repository root:
 
 ```text
@@ -38,6 +40,9 @@ cargo run -p stackyard-cli -- apache restart
 cargo run -p stackyard-cli -- db list
 cargo run -p stackyard-cli -- db create mysql
 cargo run -p stackyard-cli -- sqlite PROJECT data/app.sqlite
+cargo run -p stackyard-cli -- updates
+cargo run -p stackyard-cli -- cleanup
+cargo run -p stackyard-cli -- deps recover PROJECT
 npm --prefix apps/desktop install
 npm --prefix apps/desktop run dev
 ```

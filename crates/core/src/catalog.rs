@@ -8,6 +8,15 @@ const CATALOG_JSON: &str = include_str!("../../../catalog/packages.json");
 pub struct CatalogFile {
     pub revision: u32,
     pub packages: Vec<CatalogPackage>,
+    #[serde(default)]
+    pub news: Vec<NewsItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct NewsItem {
+    pub id: String,
+    pub title: String,
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

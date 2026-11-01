@@ -362,6 +362,30 @@ async fn run() -> stackyard_core::Result<()> {
             );
             Ok(())
         }
+        [cmd] if cmd == "updates" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(&roundtrip(&dir, Command::RefreshUpdates).await?);
+            Ok(())
+        }
+        [cmd] if cmd == "cleanup" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(&roundtrip(&dir, Command::CleanupUnused).await?);
+            Ok(())
+        }
+        [cmd, id, version] if cmd == "note-external" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(
+                &roundtrip(
+                    &dir,
+                    Command::NoteExternal {
+                        package_id: id.to_string(),
+                        observed_version: version.to_string(),
+                    },
+                )
+                .await?,
+            );
+            Ok(())
+        }
         [cmd, rest @ ..] if cmd == "deps" => {
             let dir = ensure_engine(&data_dir).await?;
             deps_command(&dir, rest).await
@@ -445,6 +469,16 @@ async fn deps_command(dir: &std::path::Path, args: &[String]) -> stackyard_core:
             )
             .await?
         }
+        [action, id] if action == "recover" => {
+            roundtrip(
+                dir,
+                Command::DepRecover {
+                    project_id: id.clone(),
+                    scope,
+                },
+            )
+            .await?
+        }
         [action, id] if action == "list" => {
             roundtrip(
                 dir,
@@ -469,7 +503,8 @@ async fn deps_command(dir: &std::path::Path, args: &[String]) -> stackyard_core:
         }
         _ => {
             return Err(stackyard_core::Error::InvalidMessage(
-                "usage: stackyard deps install|add|remove|update|list|cancel ...".to_string(),
+                "usage: stackyard deps install|add|remove|update|list|recover|cancel ..."
+                    .to_string(),
             ));
         }
     };
@@ -652,7 +687,11 @@ fn print_help() {
          stackyard deps remove ID PACKAGE [--scope DIR]\n  \
          stackyard deps update ID PACKAGE [--scope DIR]\n  \
          stackyard deps list ID [--scope DIR]\n  \
+         stackyard deps recover ID [--scope DIR]\n  \
          stackyard deps cancel TASK\n  \
+         stackyard updates\n  \
+         stackyard cleanup\n  \
+         stackyard note-external PACKAGE VERSION\n  \
          stackyard sites\n  \
          stackyard publish ID\n  \
          stackyard unpublish ID\n  \
@@ -826,6 +865,14 @@ fn print_outcome(outcome: &Outcome) {
             }
             for file in &view.sqlite {
                 println!("sqlite: {} {}", file.project_id, file.path);
+            }
+        }
+        Outcome::Updates { notices } => {
+            if notices.is_empty() {
+                println!("updates: none");
+            }
+            for notice in notices {
+                println!("{}: {} — {}", notice.kind, notice.subject, notice.detail);
             }
         }
     }

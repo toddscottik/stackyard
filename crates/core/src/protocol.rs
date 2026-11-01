@@ -185,6 +185,16 @@ pub enum Command {
         source: String,
         destination: String,
     },
+    RefreshUpdates,
+    CleanupUnused,
+    NoteExternal {
+        package_id: String,
+        observed_version: String,
+    },
+    DepRecover {
+        project_id: String,
+        scope: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,6 +269,9 @@ pub enum Outcome {
     },
     Databases {
         view: DbView,
+    },
+    Updates {
+        notices: Vec<crate::updates::UpdateNotice>,
     },
 }
 

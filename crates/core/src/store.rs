@@ -6,7 +6,7 @@ use rusqlite::{params, Connection};
 use crate::error::{Error, Result};
 use crate::protocol::{validate_setting_key, validate_setting_value};
 
-const SCHEMA_VERSION: u32 = 5;
+const SCHEMA_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PackageRecord {
@@ -272,6 +272,141 @@ impl Store {
             )
             .map_err(|source| Error::database("write selection", source))?;
         Ok(())
+    }
+
+    pub fn package_has_running_project(&self, package_id: &str) -> Result<bool> {
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM selections AS s
+                 JOIN processes AS p ON p.project_id = s.project_id
+                 WHERE s.package_id = ?1 AND p.state IN ('starting', 'running', 'orphaned')",
+                params![package_id],
+                |row| row.get(0),
+            )
+            .map_err(|source| Error::database("count running selections", source))?;
+        Ok(count > 0)
+    }
+
+    pub fn record_selection_history(
+        &self,
+        project_id: &str,
+        role: &str,
+        package_id: &str,
+        previous_package_id: Option<&str>,
+    ) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO selection_history (
+                    project_id, role, package_id, previous_package_id, recorded_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    project_id,
+                    role,
+                    package_id,
+                    previous_package_id,
+                    now_unix()
+                ],
+            )
+            .map_err(|source| Error::database("record selection history", source))?;
+        Ok(())
+    }
+
+    pub fn previous_selection(&self, project_id: &str, role: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT previous_package_id FROM selection_history
+                 WHERE project_id = ?1 AND role = ?2
+                 ORDER BY id DESC LIMIT 1",
+            )
+            .map_err(|source| Error::database("prepare selection history", source))?;
+        let mut rows = stmt
+            .query(params![project_id, role])
+            .map_err(|source| Error::database("query selection history", source))?;
+        match rows
+            .next()
+            .map_err(|source| Error::database("read selection history", source))?
+        {
+            Some(row) => row
+                .get(0)
+                .map_err(|source| Error::database("read previous selection", source)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn clear_generated_notices(&self) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM update_notices WHERE kind != 'external'", [])
+            .map_err(|source| Error::database("clear update notices", source))?;
+        Ok(())
+    }
+
+    pub fn insert_notice(&self, kind: &str, subject: &str, detail: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO update_notices (kind, subject, detail, recorded_at) VALUES (?1, ?2, ?3, ?4)",
+                params![kind, subject, detail, now_unix()],
+            )
+            .map_err(|source| Error::database("insert update notice", source))?;
+        Ok(())
+    }
+
+    pub fn replace_external_notice(&self, subject: &str, detail: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "DELETE FROM update_notices WHERE kind = 'external' AND subject = ?1",
+                params![subject],
+            )
+            .map_err(|source| Error::database("clear external notice", source))?;
+        self.insert_notice("external", subject, detail)
+    }
+
+    pub fn list_notices(&self) -> Result<Vec<crate::updates::UpdateNotice>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT kind, subject, detail FROM update_notices ORDER BY id")
+            .map_err(|source| Error::database("prepare update notices", source))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(crate::updates::UpdateNotice {
+                    kind: row.get(0)?,
+                    subject: row.get(1)?,
+                    detail: row.get(2)?,
+                })
+            })
+            .map_err(|source| Error::database("query update notices", source))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|source| Error::database("read update notice", source))
+    }
+
+    pub fn mark_install(&self, catalog_id: &str, state: &str, message: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO install_journal (catalog_id, state, message, updated_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(catalog_id) DO UPDATE SET
+                    state = excluded.state,
+                    message = excluded.message,
+                    updated_at = excluded.updated_at",
+                params![catalog_id, state, message, now_unix()],
+            )
+            .map_err(|source| Error::database("write install journal", source))?;
+        Ok(())
+    }
+
+    pub fn running_installs(&self) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT catalog_id FROM install_journal WHERE state = 'running' ORDER BY catalog_id",
+            )
+            .map_err(|source| Error::database("prepare install journal", source))?;
+        let rows = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|source| Error::database("query install journal", source))?;
+        rows.collect::<std::result::Result<Vec<String>, _>>()
+            .map_err(|source| Error::database("read install journal", source))
     }
 
     fn retarget_moved_packages(&self) -> Result<()> {
@@ -642,6 +777,43 @@ impl Store {
             tx.commit()
                 .map_err(|source| Error::database("commit migration 5", source))?;
         }
+        if self.schema_version()? < 6 {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .map_err(|source| Error::database("begin migration 6", source))?;
+            tx.execute_batch(
+                "CREATE TABLE update_notices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    detail TEXT NOT NULL,
+                    recorded_at INTEGER NOT NULL
+                );
+                CREATE TABLE selection_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    package_id TEXT NOT NULL,
+                    previous_package_id TEXT,
+                    recorded_at INTEGER NOT NULL
+                );
+                CREATE TABLE install_journal (
+                    catalog_id TEXT PRIMARY KEY,
+                    state TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );",
+            )
+            .map_err(|source| Error::database("apply migration 6", source))?;
+            tx.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (6, ?1)",
+                params![now_unix()],
+            )
+            .map_err(|source| Error::database("record migration 6", source))?;
+            tx.commit()
+                .map_err(|source| Error::database("commit migration 6", source))?;
+        }
         Ok(())
     }
 
@@ -937,7 +1109,7 @@ mod tests {
         let dir = temp_dir();
         {
             let store = Store::open(&dir).expect("open");
-            assert_eq!(store.schema_version().expect("version"), 5);
+            assert_eq!(store.schema_version().expect("version"), 6);
             store.put("display_name", "Ada").expect("put");
             assert_eq!(
                 store.last_event().expect("event").as_deref(),
@@ -945,7 +1117,7 @@ mod tests {
             );
         }
         let store = Store::open(&dir).expect("reopen");
-        assert_eq!(store.schema_version().expect("version"), 5);
+        assert_eq!(store.schema_version().expect("version"), 6);
         assert_eq!(
             store.get("display_name").expect("get").as_deref(),
             Some("Ada")

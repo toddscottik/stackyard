@@ -1,6 +1,13 @@
 {
   "revision": 1,
   "note": "Runnable catalog. Each entry is a Windows payload whose downloaded bytes matched the publisher digest on 31 October 2026. macOS pins stay in docs/evidence/S0-MAC-PACKAGES.md until that machine runs them.",
+  "news": [
+    {
+      "id": "upstream-releases-are-not-packages",
+      "title": "Upstream release announcements are not installable packages",
+      "detail": "A version announced by Node.js, Python, or a database vendor stays news until a catalog entry has a checked digest. This item is not a download."
+    }
+  ],
   "packages": [
     {
       "id": "node-24.22.2-windows-x64",
