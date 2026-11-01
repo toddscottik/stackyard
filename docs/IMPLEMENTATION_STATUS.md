@@ -21,7 +21,7 @@ Updated: 31 October 2026.
 | 1: foundation | Partial. Windows skeleton runs as of 1 November 2026. Mac toolchain and desktop open are pending | Finish the Mac toolchain check and open the desktop there. Then Stage 2 package providers |
 | 2: packages | Partial. Windows Node, Python, uv, and pnpm can be installed or referenced as of 1 November 2026. macOS packages are not in the catalog | Run the same install and selection flow on the M1 Pro after the Mac catalog pins are payload-checked |
 | 3: project runner | Partial. Linux x86_64 process and dependency checks passed on 1 November 2026. Windows 10 and macOS 14.5 launches are pending | Run the same project and dependency flows on Windows 10 x64 and the M1 Pro |
-| 4: desktop workflows | Not started | Components/projects/logs with real backend actions |
+| 4: desktop workflows | Partial. Desktop screens and tray policy are implemented as of 1 November 2026. A live window was not opened on Windows 10 or macOS 14.5 | Open the desktop on those machines and run one project through import, install, start, logs, restart, and stop |
 | 5: Apache/HTTPS | Not started | Shared virtual hosts, proxying, trust setup |
 | 6: databases | Not started | MySQL then PostgreSQL providers, SQLite and backup/restore |
 | 7: updates/recovery | Not started | Side-by-side updates and interrupted-operation recovery |
