@@ -12,7 +12,15 @@ Repository working rules are in [AGENTS.md](AGENTS.md). For parallel development
    [Dependency management](docs/DEPENDENCY_MANAGEMENT.md) specifies pnpm/pip workflows and PHP/Composer/native extensions, including Memcached server/client separation.
 4. [Product plan](docs/PRODUCT_PLAN.md) and [review](docs/PRODUCT_PLAN_REVIEW.md) — research and broader roadmap. The development plan takes precedence for current implementation scope.
 
-Stage 0 recorded Windows package probes. macOS package execution is still pending on the M1 Pro. Stage 3 runs projects and dependency commands. Windows and macOS process checks for that stage are still pending; the Linux evidence is in `docs/evidence/S3-PROJECTS.md`.
+Stage 0 recorded Windows package probes. macOS package execution is still pending on the M1 Pro. Stage 4 is the desktop: Projects, Components, and Settings call the engine. Closing the window hides it; Quit stops managed projects unless background mode is on. Linux UI evidence is in `docs/evidence/S4-DESKTOP.md`. Windows and macOS window checks are still pending.
+
+Stage 5 publishes projects through one Apache. A `[site]` table proxies a service or serves a directory. The listener stays on high loopback ports. Evidence is in `docs/evidence/S5-APACHE.md`.
+
+Stage 6 adds MySQL, PostgreSQL, and SQLite. A managed instance has its own data directory and is not stopped when a project stops. An external connection has no process. Evidence is in `docs/evidence/S6-DATABASES.md`.
+
+Stage 7 checks the bundled catalog for compatible runtime updates and installs them beside the current version. Switching one project leaves the others. Database versions, external tools, project dependencies, and application updates stay on separate paths. Evidence is in `docs/evidence/S7-UPDATES.md`.
+
+Stage 8 adds setup steps, a redacted diagnostics report, and the personal-release limits. The Windows 10 and macOS 14.5 acceptance run is still open. See [setup](docs/SETUP.md), [known limitations](docs/KNOWN_LIMITATIONS.md), and `docs/evidence/S8-PERSONAL.md`.
 
 Development commands, from the repository root:
 
@@ -28,6 +36,16 @@ cargo run -p stackyard-cli -- import PATH
 cargo run -p stackyard-cli -- start PROJECT
 cargo run -p stackyard-cli -- stop-project PROJECT
 cargo run -p stackyard-cli -- deps install PROJECT
+cargo run -p stackyard-cli -- publish PROJECT
+cargo run -p stackyard-cli -- sites
+cargo run -p stackyard-cli -- apache restart
+cargo run -p stackyard-cli -- db list
+cargo run -p stackyard-cli -- db create mysql
+cargo run -p stackyard-cli -- sqlite PROJECT data/app.sqlite
+cargo run -p stackyard-cli -- diagnostics
+cargo run -p stackyard-cli -- updates
+cargo run -p stackyard-cli -- cleanup
+cargo run -p stackyard-cli -- deps recover PROJECT
 npm --prefix apps/desktop install
 npm --prefix apps/desktop run dev
 ```

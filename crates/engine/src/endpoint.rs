@@ -50,7 +50,17 @@ mod platform {
                 .connect()
                 .await
                 .map_err(|source| Error::io("accept engine client", source))?;
-            let next = create_server(&self.data_dir, false)?;
+            // A client can open the name in the moment after this instance is
+            // taken. Keep creating the next instance instead of ending the engine.
+            let next = match create_server_retry(&self.data_dir).await {
+                Ok(server) => server,
+                Err(err) => {
+                    if let Ok(fresh) = create_server(&self.data_dir, false) {
+                        self.server = fresh;
+                    }
+                    return Err(err);
+                }
+            };
             Ok(std::mem::replace(&mut self.server, next))
         }
 
@@ -81,6 +91,20 @@ mod platform {
         }
         .map_err(|source| map_bind_error(data_dir, source))?;
         Ok(server)
+    }
+
+    async fn create_server_retry(data_dir: &Path) -> Result<NamedPipeServer> {
+        let mut last = None;
+        for _ in 0..25 {
+            match create_server(data_dir, false) {
+                Ok(server) => return Ok(server),
+                Err(err) => {
+                    last = Some(err);
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            }
+        }
+        Err(last.expect("named pipe create was retried"))
     }
 
     fn map_bind_error(data_dir: &Path, source: std::io::Error) -> Error {
@@ -210,6 +234,8 @@ mod platform {
 
 #[cfg(unix)]
 mod platform {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
     use stackyard_core::{socket_path, Error, Result};
@@ -223,6 +249,12 @@ mod platform {
 
     pub fn bind(data_dir: &Path) -> Result<Endpoint> {
         let socket = socket_path(data_dir);
+        if let Some(parent) = socket.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|source| Error::io("create engine socket directory", source))?;
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                .map_err(|source| Error::io("restrict engine socket directory", source))?;
+        }
         if socket.exists() {
             match std::os::unix::net::UnixStream::connect(&socket) {
                 Ok(_) => {
@@ -237,8 +269,7 @@ mod platform {
         }
         let listener = UnixListener::bind(&socket)
             .map_err(|source| Error::io("bind engine socket", source))?;
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))
+        std::fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))
             .map_err(|source| Error::io("restrict engine socket permissions", source))?;
         Ok(Endpoint { listener })
     }
@@ -267,14 +298,7 @@ impl Endpoint {
 mod tests {
     #[tokio::test]
     async fn pipe_dacl_does_not_grant_other_local_users() {
-        let path = std::env::temp_dir().join(format!(
-            "stackyard-dacl-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let path = stackyard_core::disposable_dir("dacl");
         let dir = stackyard_core::prepare_data_dir(&path).expect("temp dir");
         let endpoint = super::Endpoint::bind(&dir).expect("bind");
         let sddl = endpoint.dacl_sddl().expect("dacl");
@@ -284,8 +308,18 @@ mod tests {
             "authenticated users ace: {sddl}"
         );
         assert!(!sddl.contains("S-1-5-32-544"), "administrators ace: {sddl}");
+        assert!(!sddl.contains(";;;WD)"), "everyone alias: {sddl}");
         assert!(
-            sddl.contains("S-1-5-21-"),
+            !sddl.contains(";;;AU)"),
+            "authenticated users alias: {sddl}"
+        );
+        assert!(
+            !sddl.contains(";;;BA)"),
+            "administrators group alias: {sddl}"
+        );
+        // Windows prints the built-in Administrator account as LA instead of its S-1-5-21 SID.
+        assert!(
+            sddl.contains("S-1-5-21-") || sddl.contains(";;;LA)"),
             "current user ace missing: {sddl}"
         );
         let _ = std::fs::remove_dir_all(&dir);

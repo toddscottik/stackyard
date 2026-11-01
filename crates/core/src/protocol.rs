@@ -106,6 +106,96 @@ pub enum Command {
     DepCancel {
         operation_id: String,
     },
+    FrontStatus,
+    PublishProject {
+        project_id: String,
+    },
+    UnpublishProject {
+        project_id: String,
+    },
+    RestartFront,
+    SetFrontPorts {
+        http_port: u16,
+        https_port: u16,
+    },
+    TrustInstall {
+        directory: String,
+    },
+    TrustRemove {
+        directory: String,
+    },
+    WriteHosts {
+        path: String,
+    },
+    DbList,
+    DbCreate {
+        engine: String,
+        port: u16,
+    },
+    DbStart {
+        instance_id: String,
+    },
+    DbStop {
+        instance_id: String,
+    },
+    DbAdd {
+        instance_id: String,
+        project_id: String,
+        name: String,
+    },
+    DbBackup {
+        instance_id: String,
+        database: String,
+        destination: String,
+    },
+    DbRestore {
+        instance_id: String,
+        database: String,
+        source: String,
+        into: String,
+    },
+    DbAttach {
+        project_id: String,
+        engine: String,
+        host: String,
+        port: u16,
+        database: String,
+        user: String,
+        password: String,
+    },
+    DbDetach {
+        project_id: String,
+        connection_id: String,
+    },
+    DbProbe {
+        project_id: String,
+        name: String,
+    },
+    DbMigrate,
+    SqliteUse {
+        project_id: String,
+        path: String,
+    },
+    SqliteBackup {
+        project_id: String,
+        destination: String,
+    },
+    SqliteRestore {
+        project_id: String,
+        source: String,
+        destination: String,
+    },
+    RefreshUpdates,
+    CleanupUnused,
+    NoteExternal {
+        package_id: String,
+        observed_version: String,
+    },
+    DepRecover {
+        project_id: String,
+        scope: String,
+    },
+    Diagnostics,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +258,43 @@ pub enum Outcome {
         state: String,
         message: String,
     },
+    Front {
+        state: String,
+        pid: Option<u32>,
+        http_port: u16,
+        https_port: u16,
+        restart_impact: String,
+        ca_path: String,
+        resolves_localhost: bool,
+        sites: Vec<SiteView>,
+    },
+    Databases {
+        view: DbView,
+    },
+    Updates {
+        notices: Vec<crate::updates::UpdateNotice>,
+    },
+    Diagnostics {
+        report: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DbView {
+    pub instances: Vec<crate::store::DbInstanceRecord>,
+    pub bindings: Vec<crate::store::DbBindingRecord>,
+    pub sqlite: Vec<crate::store::SqliteRecord>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SiteView {
+    pub project_id: String,
+    pub host: String,
+    pub mode: String,
+    pub upstream: String,
+    pub http_url: String,
+    pub https_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

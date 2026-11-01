@@ -63,8 +63,19 @@ pub enum Error {
     },
     #[error("127.0.0.1:{port} is already in use")]
     PortInUse { port: u16 },
+    #[error(
+        "127.0.0.1:{port} is already in use. Stackyard did not stop the program listening there. Available high ports: {alternatives}"
+    )]
+    FrontPortBusy { port: u16, alternatives: String },
     #[error("project {id} is already {state}")]
     ProjectBusy { id: String, state: String },
+    #[error(
+        "data directory {} is not empty; initialization was refused and nothing was deleted",
+        path.display()
+    )]
+    DataDirNotEmpty { path: PathBuf },
+    #[error("database major-version migration is not supported")]
+    DatabaseMigrationUnsupported,
     #[error("{context}: {source}")]
     Io {
         context: &'static str,

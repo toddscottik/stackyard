@@ -65,6 +65,33 @@ pub fn start_exec(
     })
 }
 
+pub fn start_recovery(
+    tasks: &Arc<TaskBoard>,
+    data_dir: &Path,
+    project_id: &str,
+    scope: &str,
+) -> Result<Outcome> {
+    let data_dir = data_dir.to_path_buf();
+    let project_id = project_id.to_string();
+    let scope = scope.to_string();
+    let label = format!(
+        "recover dependencies {project_id} from the lockfile; this does not roll back package scripts"
+    );
+    spawn_task(tasks, label, move |cancel| {
+        let message = run_dependency(
+            &data_dir,
+            &project_id,
+            DepAction::Install,
+            None,
+            &scope,
+            &cancel,
+        )?;
+        Ok(format!(
+            "recovered dependencies from the recorded lockfile. Package scripts were not rolled back. {message}"
+        ))
+    })
+}
+
 pub fn start_dependency(
     tasks: &Arc<TaskBoard>,
     data_dir: &Path,
@@ -345,7 +372,10 @@ fn version_args(program: &Path, args: &[String]) -> Vec<String> {
             return vec![script.clone(), "-v".to_string()];
         }
     }
-    if args.windows(2).any(|pair| pair[0] == "-m" && pair[1] == "pip") {
+    if args
+        .windows(2)
+        .any(|pair| pair[0] == "-m" && pair[1] == "pip")
+    {
         return vec!["-m".to_string(), "pip".to_string(), "--version".to_string()];
     }
     let name = program

@@ -1,28 +1,21 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use stackyard_core::{prepare_data_dir, roundtrip, Error};
 use stackyard_core::{Command, Outcome};
 
 fn temp_dir() -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "stackyard-engine-{}-{}",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos()
-    ));
-    prepare_data_dir(&path).expect("temp dir")
+    prepare_data_dir(&stackyard_core::disposable_dir("engine")).expect("temp dir")
 }
 
 async fn wait_status(dir: &std::path::Path) -> Outcome {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
-        if let Ok(outcome) = roundtrip(dir, Command::Status).await {
-            return outcome;
-        }
+        let err = match roundtrip(dir, Command::Status).await {
+            Ok(outcome) => return outcome,
+            Err(err) => err.to_string(),
+        };
         if tokio::time::Instant::now() > deadline {
-            panic!("engine did not accept a status request");
+            panic!("engine did not accept a status request: {err}");
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -43,7 +36,7 @@ async fn second_server_refuses_and_settings_survive_restart() {
     else {
         panic!("expected status, got {status:?}");
     };
-    assert_eq!(schema_version, 3);
+    assert_eq!(schema_version, 6);
     assert!(pid > 0);
 
     let dir_for_second = dir.clone();

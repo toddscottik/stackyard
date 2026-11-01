@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 31 October 2026.
+Updated: 1 November 2026.
 
 ## Completed preparation
 
@@ -21,11 +21,11 @@ Updated: 31 October 2026.
 | 1: foundation | Partial. Windows skeleton runs as of 1 November 2026. Mac toolchain and desktop open are pending | Finish the Mac toolchain check and open the desktop there. Then Stage 2 package providers |
 | 2: packages | Partial. Windows Node, Python, uv, and pnpm can be installed or referenced as of 1 November 2026. macOS packages are not in the catalog | Run the same install and selection flow on the M1 Pro after the Mac catalog pins are payload-checked |
 | 3: project runner | Partial. Linux x86_64 process and dependency checks passed on 1 November 2026. Windows 10 and macOS 14.5 launches are pending | Run the same project and dependency flows on Windows 10 x64 and the M1 Pro |
-| 4: desktop workflows | Not started | Components/projects/logs with real backend actions |
-| 5: Apache/HTTPS | Not started | Shared virtual hosts, proxying, trust setup |
-| 6: databases | Not started | MySQL then PostgreSQL providers, SQLite and backup/restore |
-| 7: updates/recovery | Not started | Side-by-side updates and interrupted-operation recovery |
-| 8: personal release | Not started | Real-project acceptance on Windows and Mac |
+| 4: desktop workflows | Partial. Desktop screens and tray policy are implemented as of 1 November 2026. A live window was not opened on Windows 10 or macOS 14.5 | Open the desktop on those machines and run one project through import, install, start, logs, restart, and stop |
+| 5: Apache/HTTPS | Partial. Linux x86_64 shared Apache, proxy, static rewrite, and generated HTTPS passed on 1 November 2026. Windows catalog pin is the Stage 0 zip and was not launched again. macOS Apache remains blocked | Launch the Windows catalog Apache on Windows 10. Keep macOS blocked until a relocatable arm64 archive exists. System trust and ports 80/443 stay pending |
+| 6: databases | Partial. Linux x86_64 MySQL 8.0.46, PostgreSQL 16.15, and SQLite 3.45.1 passed on 1 November 2026. Windows catalog PostgreSQL was not launched again. MySQL has no SHA256 catalog entry. macOS database archives stay blocked | Launch the Windows catalog PostgreSQL on Windows 10. Leave MySQL out of the catalog until a SHA256 exists. Leave macOS blocked until an approved archive exists. Credential Manager and Keychain remain pending |
+| 7: updates/recovery | Partial. Linux x86_64 notice, switch, cleanup, and interrupted-install checks passed on 1 November 2026. No second digest-checked Node or Python pin was downloaded | Download a newer checked Node or Python pin on Windows 10 and switch one project there. Leave macOS pins out until a payload check |
+| 8: personal release | Partial. Linux x86_64 diagnostics, setup notes, and fixture smoke passed on 1 November 2026. Windows 10 and macOS 14.5 acceptance, the user's projects, and sleep/wake are open | Run the acceptance list on Windows 10 x64 and the M1 Pro running macOS 14.5. Measure startup there with an editor and browser. Do not treat the Linux sample as that gate |
 | 8A: PHP/extensions | Not started | PHP/Composer, native extension profiles, Memcached server/client feasibility and integration |
 | 9: public release | Deferred | Distribution/license decisions, release pipeline and expanded coverage |
 
@@ -95,3 +95,67 @@ Commands and outcomes on this machine:
 Details: `docs/evidence/S3-PROJECTS.md`.
 
 Next task: repeat the Stage 3 project and dependency smoke on Windows 10 x64 and macOS 14.5 arm64. Mac package catalog pins stay blocked on a payload check.
+
+## Stage 5 worker handoff
+
+1 November 2026. Slice: S5-APACHE. Executed on Linux x86_64 (`uname` 6.12.94+, rustc 1.99.1, Apache 2.4.58 at `/usr/sbin/apache2`). This is not the Windows 10 or macOS 14.5 acceptance machine.
+
+One generated Apache config serves every published `[site]`. `httpd -t` must pass before the live file is replaced. High ports only. A busy port is reported with other high ports and the occupant is left running. Certificates are generated in the data directory. Trust install and removal touch only `stackyard-ca.pem` in a directory the caller names. `hosts-write` rewrites only lines marked `# stackyard`. The Windows catalog now lists the Apache Lounge 2.4.69 zip from Stage 0. It was not downloaded here. macOS Apache stays out of the catalog.
+
+Commands and outcomes on this machine:
+
+- `cargo test --workspace --exclude stackyard-desktop` passed, including two static hosts, an `.htaccess` rewrite, proxy POST, redirect rewriting, a WebSocket upgrade, HTTPS checked with the generated CA, a refused candidate config, trust install/removal, and an occupied port.
+- `cargo test -p stackyard-desktop --lib` passed. `npx tsc --noEmit` in `apps/desktop` passed.
+- Chrome on the Vite page showed the Apache explanation and an Apache choice for Use existing. Publish needs the desktop engine, which that browser does not have.
+
+Details: `docs/evidence/S5-APACHE.md` and `docs/decisions/0003-apache-sites.md`.
+
+Next task: run the Windows catalog Apache on Windows 10 x64. Leave macOS Apache blocked until a relocatable arm64 build exists. Do not treat directory trust or this Linux `apache2` as the Windows or macOS trust and package checks.
+
+## Stage 6 worker handoff
+
+1 November 2026. Slice: S6-DATABASES. Executed on Linux x86_64 (`uname` 6.12.94+, rustc 1.99.1, MySQL 8.0.46 at `/usr/sbin/mysqld`, PostgreSQL 16.15 at `/usr/lib/postgresql/16/bin/postgres`, SQLite 3.45.1). This is not the Windows 10 or macOS 14.5 acceptance machine.
+
+Managed instances live under the data directory, bind `127.0.0.1`, and keep their files when a project stops or a connection is detached. External connections have no process. SQLite is a project file copied with the backup API. `db migrate` is refused. Passwords stay in mode `0600` files and off the command line. The Windows catalog lists the PostgreSQL 18.6 zip from Stage 0. MySQL stays out because the publisher zip is MD5-only. macOS database archives stay out.
+
+Commands and outcomes on this machine:
+
+- `cargo test --workspace --exclude stackyard-desktop --offline` passed, including the MySQL, PostgreSQL, and SQLite restart and restore test.
+- `cargo test -p stackyard-desktop --lib --offline` passed. `npx tsc --noEmit` in `apps/desktop` passed.
+- Chrome on the Vite page showed the Databases section and MySQL and PostgreSQL under Use existing. Create needs the desktop engine, which that browser does not have.
+
+Details: `docs/evidence/S6-DATABASES.md` and `docs/decisions/0004-databases.md`.
+
+Next task: launch the Windows catalog PostgreSQL on Windows 10. Do not add MySQL to the catalog without a SHA256. Leave macOS MySQL and PostgreSQL blocked. Do not treat these distro 8.0 and 16 servers as the Windows 8.4 and 18.6 checks, and do not treat secret files as Credential Manager or Keychain.
+
+## Stage 7 worker handoff
+
+1 November 2026. Slice: S7-UPDATES. Executed on Linux x86_64 (`uname` 6.12.94+, rustc 1.99.1). This is not the Windows 10 or macOS 14.5 acceptance machine.
+
+Refresh reads the bundled catalog and a news list with no download URL. A compatible runtime can be installed beside the current one and selected for one project. The previous selection is recorded and the other project is left alone. MySQL and PostgreSQL version changes stay on the migration error. An external file is not overwritten when its observed version differs. A missing launch file keeps the selection. An install journal left running loses only its incoming directory on the next engine start. Cleanup refuses a package a project still selects, including a running project. `deps recover` reinstalls from the lockfile and does not claim to roll scripts back. Application updates are a notice.
+
+Commands and outcomes on this machine:
+
+- `cargo test --workspace --exclude stackyard-desktop --offline` passed, including the update unit tests and `interrupted_install_is_cleared_and_a_cached_project_stays_listed`.
+- `cargo test -p stackyard-desktop --lib --offline` passed. `npx tsc --noEmit` in `apps/desktop` passed.
+- Chrome on the Vite page showed the Updates block. Check and cleanup need the desktop engine, which that browser does not have.
+
+Details: `docs/evidence/S7-UPDATES.md` and `docs/decisions/0005-updates.md`.
+
+Next task: add a second digest-checked Node or Python pin only after the payload is verified, then download it on Windows 10 and switch one project. Do not fetch an unchecked upstream release into the catalog. Leave macOS pins out until a payload check.
+
+## Stage 8 worker handoff
+
+1 November 2026. Slice: S8-PERSONAL. Executed on Linux x86_64 (`uname` 6.12.94+, rustc 1.99.1, Node v22.23.4, npm 10.9.9, pnpm 12.16.1, Python 3.12.3). This is not the Windows 10 or macOS 14.5 acceptance machine. `uv` is not installed here.
+
+`diagnostics` lists projects, packages, and databases and strips secret file contents, private keys, and setting values. Setup is `docs/SETUP.md`. Limits are `docs/KNOWN_LIMITATIONS.md`. A fresh `stackyard status` returned in 0.106 seconds. The engine RSS was 11268 kB. Chrome was running; an editor was not. `fixtures/node-http` served `node-http` with npm. `fixtures/flask-app` served `flask-ok` from an app-owned pip environment. `fixtures/next-app` refused pnpm 10.33.4 because `package.json` asks for pnpm 12.16.1, then served HTML with pnpm 12.16.1 and `--frozen-lockfile`.
+
+Commands and outcomes on this machine:
+
+- `cargo test --workspace --exclude stackyard-desktop --offline` passed, including the diagnostics redaction test.
+- `cargo test -p stackyard-desktop --lib --offline` passed. `npx tsc --noEmit` in `apps/desktop` passed.
+- Chrome on the Vite page showed Settings → Diagnostics. Create needs the desktop engine, which that browser does not have.
+
+Details: `docs/evidence/S8-PERSONAL.md` and `docs/decisions/0006-personal-release.md`.
+
+Next task: run this acceptance list on Windows 10 x64 and the M1 Pro running macOS 14.5, including the user's projects, sleep and wake, and a startup measurement with an editor and browser. Do not mark Stage 8 passed from the Linux sample.

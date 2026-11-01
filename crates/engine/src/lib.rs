@@ -1,7 +1,9 @@
 //! Per-user engine process. Desktop and CLI are clients of [`serve`].
 
 mod control;
+mod database;
 mod endpoint;
+mod front;
 mod group;
 mod jobs;
 mod supervisor;
@@ -13,15 +15,18 @@ use std::sync::Arc;
 
 use jobs::Jobs;
 use stackyard_core::{
-    adopt_existing, catalog_for_host, check_api_version, discover_candidates, download_and_install,
-    ensure_default_node_manager, find_package, import_project, list_project_views,
-    prepare_data_dir, project_view, recv, remove_package, select_for_project, send, Command,
-    DepAction, Error, Outcome, Progress, Request, Response, Result, Store, API_VERSION,
+    adopt_existing, catalog_for_host, check_api_version, cleanup_unused, discover_candidates,
+    download_and_install, ensure_default_node_manager, export_diagnostics, find_package,
+    import_project, list_project_views, mark_install_finished, mark_install_running,
+    prepare_data_dir, project_view, reconcile_interrupted, record_external_version, recv,
+    refresh_updates, remove_package, select_for_project, send, Command, DepAction, Error, Outcome,
+    Progress, Request, Response, Result, Store, API_VERSION,
 };
 use supervisor::Supervisor;
 use tasks::TaskBoard;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
+pub use front::Front;
 pub use stackyard_core::Error as EngineError;
 
 pub fn serve(data_dir: &Path) -> Result<()> {
@@ -38,18 +43,38 @@ async fn listen(data_dir: PathBuf) -> Result<()> {
     let jobs = Jobs::new();
     let tasks = TaskBoard::new();
     let supervisor = supervisor::new(data_dir.clone());
+    let front = Arc::new(front::Front::new(data_dir.clone()));
+    let databases = Arc::new(database::Databases::new(data_dir.clone()));
     supervisor.reconcile()?;
+    reconcile_interrupted(&data_dir)?;
     let mut endpoint = endpoint::Endpoint::bind(&data_dir)?;
     loop {
-        let mut client = endpoint.accept().await?;
-        let stop =
-            match handle_client(&mut client, &store, &data_dir, &jobs, &tasks, &supervisor).await {
-                Ok(stop) => stop,
-                Err(err) => {
-                    eprintln!("engine client: {err}");
-                    false
-                }
-            };
+        let mut client = match endpoint.accept().await {
+            Ok(client) => client,
+            Err(err) => {
+                eprintln!("engine accept: {err}");
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                continue;
+            }
+        };
+        let stop = match handle_client(
+            &mut client,
+            &store,
+            &data_dir,
+            &jobs,
+            &tasks,
+            &supervisor,
+            &front,
+            &databases,
+        )
+        .await
+        {
+            Ok(stop) => stop,
+            Err(err) => {
+                eprintln!("engine client: {err}");
+                false
+            }
+        };
         if stop {
             break;
         }
@@ -64,6 +89,8 @@ async fn handle_client<S>(
     jobs: &Arc<Jobs>,
     tasks: &Arc<TaskBoard>,
     supervisor: &Arc<Supervisor>,
+    front: &Arc<front::Front>,
+    databases: &Arc<database::Databases>,
 ) -> Result<bool>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -72,7 +99,11 @@ where
         let mut reader = BufReader::new(&mut *stream);
         recv(&mut reader).await?
     };
-    let response = match dispatch(&request, store, data_dir, jobs, tasks, supervisor).await {
+    let response = match dispatch(
+        &request, store, data_dir, jobs, tasks, supervisor, front, databases,
+    )
+    .await
+    {
         Ok(outcome) => Response {
             v: API_VERSION,
             id: request.id.clone(),
@@ -101,6 +132,8 @@ async fn dispatch(
     jobs: &Arc<Jobs>,
     tasks: &Arc<TaskBoard>,
     supervisor: &Arc<Supervisor>,
+    front: &front::Front,
+    databases: &database::Databases,
 ) -> Result<Outcome> {
     check_api_version(request.v)?;
     match &request.cmd {
@@ -123,6 +156,8 @@ async fn dispatch(
             })
         }
         Command::Stop => {
+            databases.shutdown();
+            front.shutdown();
             supervisor.shutdown();
             Ok(Outcome::Stopped)
         }
@@ -165,6 +200,24 @@ async fn dispatch(
             Ok(Outcome::Packages {
                 packages: store.list_packages()?,
             })
+        }
+        Command::Diagnostics => Ok(Outcome::Diagnostics {
+            report: export_diagnostics(data_dir)?,
+        }),
+        Command::RefreshUpdates => Ok(Outcome::Updates {
+            notices: refresh_updates(data_dir)?,
+        }),
+        Command::CleanupUnused => Ok(Outcome::Updates {
+            notices: cleanup_unused(data_dir)?,
+        }),
+        Command::NoteExternal {
+            package_id,
+            observed_version,
+        } => Ok(Outcome::Updates {
+            notices: record_external_version(data_dir, package_id, observed_version)?,
+        }),
+        Command::DepRecover { project_id, scope } => {
+            control::start_recovery(tasks, data_dir, project_id, scope)
         }
         Command::RemovePackage { package_id } => {
             remove_package(data_dir, package_id)?;
@@ -257,6 +310,71 @@ async fn dispatch(
             }
             control::task_outcome(tasks, operation_id)
         }
+        Command::FrontStatus => front.status(),
+        Command::PublishProject { project_id } => front.publish(project_id),
+        Command::UnpublishProject { project_id } => front.unpublish(project_id),
+        Command::RestartFront => front.restart(),
+        Command::SetFrontPorts {
+            http_port,
+            https_port,
+        } => front.set_ports(*http_port, *https_port),
+        Command::TrustInstall { directory } => front.trust_install(Path::new(directory)),
+        Command::TrustRemove { directory } => front.trust_remove(Path::new(directory)),
+        Command::WriteHosts { path } => front.write_hosts(Path::new(path)),
+        Command::DbList => databases.list(),
+        Command::DbCreate { engine, port } => databases.create(engine, *port),
+        Command::DbStart { instance_id } => databases.start(instance_id),
+        Command::DbStop { instance_id } => databases.stop(instance_id),
+        Command::DbAdd {
+            instance_id,
+            project_id,
+            name,
+        } => databases.add(instance_id, project_id, name),
+        Command::DbBackup {
+            instance_id,
+            database,
+            destination,
+        } => databases.backup(instance_id, database, Path::new(destination)),
+        Command::DbRestore {
+            instance_id,
+            database,
+            source,
+            into,
+        } => databases.restore(instance_id, database, Path::new(source), into),
+        Command::DbAttach {
+            project_id,
+            engine,
+            host,
+            port,
+            database,
+            user,
+            password,
+        } => databases.attach(project_id, engine, host, *port, database, user, password),
+        Command::DbDetach {
+            project_id,
+            connection_id,
+        } => databases.detach(project_id, connection_id),
+        Command::DbProbe { project_id, name } => {
+            let note = databases.probe(project_id, name)?;
+            databases.list().map(|outcome| match outcome {
+                Outcome::Databases { mut view } => {
+                    view.message = note;
+                    Outcome::Databases { view }
+                }
+                other => other,
+            })
+        }
+        Command::DbMigrate => databases.migrate(),
+        Command::SqliteUse { project_id, path } => databases.sqlite_use(project_id, path),
+        Command::SqliteBackup {
+            project_id,
+            destination,
+        } => databases.sqlite_backup(project_id, Path::new(destination)),
+        Command::SqliteRestore {
+            project_id,
+            source,
+            destination,
+        } => databases.sqlite_restore(project_id, Path::new(source), Path::new(destination)),
     }
 }
 
@@ -265,6 +383,7 @@ fn start_install(jobs: &Arc<Jobs>, data_dir: &Path, catalog_id: &str) -> Result<
         return operation_outcome(jobs, &existing);
     }
     let package = find_package(catalog_id)?;
+    mark_install_running(data_dir, &package.id)?;
     let (id, bytes, cancel) = jobs.start(package.id.clone());
     let progress = Progress { bytes, cancel };
     let jobs_for_task = Arc::clone(jobs);
@@ -277,6 +396,11 @@ fn start_install(jobs: &Arc<Jobs>, data_dir: &Path, catalog_id: &str) -> Result<
                 eprintln!("pnpm was not installed with Node: {err}");
             }
         }
+        let (state, message) = match &result {
+            Ok(_) => ("succeeded".to_string(), "installed".to_string()),
+            Err(err) => ("failed".to_string(), err.to_string()),
+        };
+        let _ = mark_install_finished(&directory, &package.id, &state, &message);
         jobs_for_task.finish(&operation_id, result);
     });
     operation_outcome(jobs, &id)

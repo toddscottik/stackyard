@@ -1,6 +1,13 @@
 {
   "revision": 1,
   "note": "Runnable catalog. Each entry is a Windows payload whose downloaded bytes matched the publisher digest on 31 October 2026. macOS pins stay in docs/evidence/S0-MAC-PACKAGES.md until that machine runs them.",
+  "news": [
+    {
+      "id": "upstream-releases-are-not-packages",
+      "title": "Upstream release announcements are not installable packages",
+      "detail": "A version announced by Node.js, Python, or a database vendor stays news until a catalog entry has a checked digest. This item is not a download."
+    }
+  ],
   "packages": [
     {
       "id": "node-24.22.2-windows-x64",
@@ -52,6 +59,32 @@
       "sha256": "253cd5caa8cdf3859a92995bdf1819d3b433690157616cc372af00d22eb0c6a4",
       "digest_source": "https://api.github.com/repos/pnpm/pnpm/releases/tags/v12.16.1",
       "launch": "pnpm.exe",
+      "version_args": ["--version"]
+    },
+    {
+      "id": "apache-2.4.69-windows-x64",
+      "kind": "server",
+      "name": "apache",
+      "version": "2.4.69",
+      "target": "windows-x64",
+      "format": "zip",
+      "url": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip",
+      "sha256": "77d715d0d9cee731e2251e7ddc2090a7a8e6d41fedef2e9827cd918593c5a652",
+      "digest_source": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip.txt",
+      "launch": "Apache24/bin/httpd.exe",
+      "version_args": ["-v"]
+    },
+    {
+      "id": "postgres-18.6-windows-x64",
+      "kind": "server",
+      "name": "postgres",
+      "version": "18.6",
+      "target": "windows-x64",
+      "format": "zip",
+      "url": "https://get.enterprisedb.com/postgresql/postgresql-18.6-5-windows-x64-binaries.zip",
+      "sha256": "e2246ba91d22345bc3d017586c09ede52d9df180b1eeb480f050445f1cad84e2",
+      "digest_source": "https://get.enterprisedb.com/postgresql/postgresql-18.6-5-windows-x64-binaries.zip.sha256",
+      "launch": "pgsql/bin/postgres.exe",
       "version_args": ["--version"]
     }
   ]

@@ -90,9 +90,28 @@ async fn call(data_dir: &Path, request: &Request) -> Result<Response> {
     {
         use tokio::net::windows::named_pipe::ClientOptions;
         let pipe = pipe_path(data_dir);
-        let client = ClientOptions::new()
-            .open(&pipe)
-            .map_err(|source| Error::io("connect to engine pipe", source))?;
+        // The server finishes one request before it calls ConnectNamedPipe again.
+        // A client that opens in that gap gets ERROR_PIPE_BUSY (231). A gap with
+        // no instance at all is ERROR_FILE_NOT_FOUND (2). Both clear on the next try.
+        let mut last_error = None;
+        let client = 'open: {
+            for _ in 0..50 {
+                match ClientOptions::new().open(&pipe) {
+                    Ok(client) => break 'open client,
+                    Err(err) if matches!(err.raw_os_error(), Some(2 | 231)) => {
+                        last_error = Some(err);
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                    Err(err) => return Err(Error::io("connect to engine pipe", err)),
+                }
+            }
+            return Err(Error::io(
+                "connect to engine pipe",
+                last_error.unwrap_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::NotFound, "engine pipe did not appear")
+                }),
+            ));
+        };
         let (reader, mut writer) = tokio::io::split(client);
         let mut reader = BufReader::new(reader);
         send(&mut writer, request).await?;

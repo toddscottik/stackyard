@@ -522,14 +522,7 @@ mod tests {
     use std::fs;
 
     fn write_project(body: &str, extra: &[(&str, &str)]) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "stackyard-deps-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let root = crate::paths::disposable_dir("deps");
         fs::create_dir_all(root.join("packages/web")).expect("dirs");
         fs::write(root.join("stackyard.toml"), body).expect("toml");
         for (name, text) in extra {
@@ -649,8 +642,9 @@ command = ["python", "serve"]
         ];
         for (name, manager) in expect {
             let root = fixtures.join(name);
-            let manifest = parse_manifest(&fs::read_to_string(root.join("stackyard.toml")).unwrap())
-                .unwrap_or_else(|err| panic!("{name}: {err}"));
+            let manifest =
+                parse_manifest(&fs::read_to_string(root.join("stackyard.toml")).unwrap())
+                    .unwrap_or_else(|err| panic!("{name}: {err}"));
             assert_eq!(
                 resolve_manager(&root, &manifest).unwrap_or_else(|err| panic!("{name}: {err}")),
                 manager,
@@ -663,7 +657,9 @@ command = ["python", "serve"]
     #[test]
     fn npm_plan_uses_the_lockfile_command() {
         let root = write_project(&node_manifest("npm"), &[("package-lock.json", "{}\n")]);
-        let node = root.join("bin").join(if cfg!(windows) { "node.exe" } else { "node" });
+        let node = root
+            .join("bin")
+            .join(if cfg!(windows) { "node.exe" } else { "node" });
         fs::create_dir_all(node.parent().unwrap()).unwrap();
         fs::write(&node, b"node").unwrap();
         let npm_name = if cfg!(windows) { "npm.cmd" } else { "npm" };
