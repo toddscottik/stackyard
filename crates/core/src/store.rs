@@ -37,6 +37,7 @@ impl Store {
             .map_err(|source| Error::database("enable foreign keys", source))?;
         let store = Self { conn };
         store.migrate()?;
+        store.retarget_moved_packages()?;
         Ok(store)
     }
 
@@ -209,6 +210,18 @@ impl Store {
         Ok(())
     }
 
+    fn retarget_moved_packages(&self) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE packages
+                 SET path = REPLACE(path, ?1, ?2),
+                     launch = REPLACE(launch, ?1, ?2)",
+                params![r"\localdev\", r"\stackyard\"],
+            )
+            .map_err(|source| Error::database("retarget moved packages", source))?;
+        Ok(())
+    }
+
     pub fn package_is_selected(&self, package_id: &str) -> Result<bool> {
         let count: i64 = self
             .conn
@@ -331,7 +344,7 @@ mod tests {
 
     fn temp_dir() -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "localdev-store-{}-{}",
+            "stackyard-store-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(UNIX_EPOCH)

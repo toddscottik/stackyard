@@ -135,6 +135,27 @@ pub fn install_reader<R: Read>(
     Ok(record)
 }
 
+/// pnpm is the default Node package manager. Existing npm lockfiles are left alone;
+/// this only installs and selects the pinned pnpm tool.
+pub fn ensure_default_node_manager(data_dir: &Path) -> Result<PackageRecord> {
+    let Some(pnpm) = crate::catalog::catalog_for_host()?
+        .into_iter()
+        .find(|package| package.name == "pnpm")
+    else {
+        return Err(Error::PackageNotFound {
+            id: "pnpm".to_string(),
+        });
+    };
+    let store = Store::open(data_dir)?;
+    if let Some(existing) = store.get_package(&pnpm.id)? {
+        store.select_package(DEFAULT_PROJECT, "pnpm", &existing.id)?;
+        return Ok(existing);
+    }
+    let installed = download_and_install(data_dir, &pnpm, &Progress::new())?;
+    select_for_project(data_dir, DEFAULT_PROJECT, &installed.id)?;
+    Ok(installed)
+}
+
 pub fn download_and_install(
     data_dir: &Path,
     package: &CatalogPackage,
@@ -147,7 +168,7 @@ pub fn download_and_install(
         .build();
     let response = agent
         .get(&package.url)
-        .set("user-agent", "localdev/0.1")
+        .set("user-agent", "stackyard/0.1")
         .call()
         .map_err(|err| Error::InvalidMessage(format!("download {}: {err}", package.url)))?;
     install_reader(data_dir, package, response.into_reader(), progress)
@@ -337,7 +358,7 @@ mod tests {
 
     fn temp_dir() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "localdev-install-{}-{}",
+            "stackyard-install-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

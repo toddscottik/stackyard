@@ -1,11 +1,11 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use localdev_core::{prepare_data_dir, roundtrip, Error};
-use localdev_core::{Command, Outcome};
+use stackyard_core::{prepare_data_dir, roundtrip, Error};
+use stackyard_core::{Command, Outcome};
 
 fn temp_dir() -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!(
-        "localdev-engine-{}-{}",
+        "stackyard-engine-{}-{}",
         std::process::id(),
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -32,7 +32,7 @@ async fn wait_status(dir: &std::path::Path) -> Outcome {
 async fn second_server_refuses_and_settings_survive_restart() {
     let dir = temp_dir();
     let dir_for_server = dir.clone();
-    let first = std::thread::spawn(move || localdev_engine::serve(&dir_for_server));
+    let first = std::thread::spawn(move || stackyard_engine::serve(&dir_for_server));
 
     let status = wait_status(&dir).await;
     let Outcome::Status {
@@ -47,7 +47,7 @@ async fn second_server_refuses_and_settings_survive_restart() {
     assert!(pid > 0);
 
     let dir_for_second = dir.clone();
-    let second = std::thread::spawn(move || localdev_engine::serve(&dir_for_second));
+    let second = std::thread::spawn(move || stackyard_engine::serve(&dir_for_second));
     let second_result = second.join().expect("second server thread");
     assert!(
         matches!(second_result, Err(Error::AlreadyRunning { .. })),
@@ -79,7 +79,7 @@ async fn second_server_refuses_and_settings_survive_restart() {
         .expect("first server");
 
     let dir_for_restart = dir.clone();
-    let restarted = std::thread::spawn(move || localdev_engine::serve(&dir_for_restart));
+    let restarted = std::thread::spawn(move || stackyard_engine::serve(&dir_for_restart));
     let status = wait_status(&dir).await;
     let Outcome::Status { last_event, .. } = &status else {
         panic!("expected status after restart");

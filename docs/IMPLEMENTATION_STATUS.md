@@ -70,7 +70,7 @@ Commands and outcomes:
 - CLI smoke against `.artifacts/S1-BOOTSTRAP/cli-smoke`: two `status` calls reported pid 74132; after `stop` and a new `status`, pid 89508 and `last_event` was `setting_put display_name`.
 - `npm --prefix apps/desktop run dev` launched `localdev-desktop.exe` with window title `Local Dev`. `localdev status` then reported the same engine pid, 91424, and data directory `%LOCALAPPDATA%\localdev`.
 
-The temporary package name is `localdev`. Tray hide and explicit Quit policy are still Stage 4. A second Windows account was not used to try the pipe. GitHub Actions has not been run. macOS 14.5 has not built or opened the desktop.
+The product name is now Stackyard. The Stage 1 records below used the placeholder name `localdev`. Tray hide and explicit Quit policy are still Stage 4. A second Windows account was not used to try the pipe. GitHub Actions has not been run. macOS 14.5 has not built or opened the desktop.
 
 ## Stage 2 coordinator handoff
 

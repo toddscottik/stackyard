@@ -140,9 +140,9 @@ fn engine_command(data_dir: &Path) -> Result<Command> {
         std::env::current_exe().map_err(|source| Error::io("locate current executable", source))?;
     let dir = current.parent().ok_or(Error::EngineBinaryMissing)?;
     let sibling_name = if cfg!(windows) {
-        "localdev-engine.exe"
+        "stackyard-engine.exe"
     } else {
-        "localdev-engine"
+        "stackyard-engine"
     };
     let sibling = dir.join(sibling_name);
     if sibling.is_file() {
@@ -154,9 +154,9 @@ fn engine_command(data_dir: &Path) -> Result<Command> {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("");
-    let is_cli = file_name.starts_with("localdev")
-        && !file_name.starts_with("localdev-engine")
-        && !file_name.starts_with("localdev-desktop");
+    let is_cli = file_name.starts_with("stackyard")
+        && !file_name.starts_with("stackyard-engine")
+        && !file_name.starts_with("stackyard-desktop");
     if is_cli {
         let mut command = Command::new(&current);
         command.arg("serve").arg("--data-dir").arg(data_dir);

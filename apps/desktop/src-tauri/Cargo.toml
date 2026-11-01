@@ -1,19 +1,19 @@
 [package]
-name = "localdev-desktop"
+name = "stackyard-desktop"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
 license.workspace = true
 
 [lib]
-name = "localdev_desktop_lib"
+name = "stackyard_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
-localdev-core = { path = "../../../crates/core" }
+stackyard-core = { path = "../../../crates/core" }
 serde.workspace = true
 tauri = { version = "2.12.5", features = [] }
 tokio.workspace = true

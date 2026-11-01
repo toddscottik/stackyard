@@ -1,11 +1,11 @@
 {
-  "name": "localdev-desktop",
+  "name": "stackyard-desktop",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "vite:dev": "vite",
-    "dev": "cargo build -p localdev-engine --manifest-path ../../Cargo.toml && tauri dev",
+    "dev": "cargo build -p stackyard-engine --manifest-path ../../Cargo.toml && tauri dev",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri"
   },

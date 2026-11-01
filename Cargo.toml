@@ -25,5 +25,5 @@ zip = "2.4.2"
 tar = "0.4.44"
 flate2 = "1.1.2"
 ureq = "2.12.1"
-localdev-core = { path = "crates/core" }
-localdev-engine = { path = "crates/engine" }
+stackyard-core = { path = "crates/core" }
+stackyard-engine = { path = "crates/engine" }

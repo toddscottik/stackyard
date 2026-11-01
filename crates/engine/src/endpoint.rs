@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use localdev_core::Result;
+use stackyard_core::Result;
 
 #[cfg(windows)]
 mod platform {
@@ -9,7 +9,7 @@ mod platform {
     use std::os::windows::io::AsRawHandle;
     use std::path::Path;
 
-    use localdev_core::{pipe_path, Error, Result};
+    use stackyard_core::{pipe_path, Error, Result};
     use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{LocalFree, HLOCAL};
@@ -212,7 +212,7 @@ mod platform {
 mod platform {
     use std::path::Path;
 
-    use localdev_core::{socket_path, Error, Result};
+    use stackyard_core::{socket_path, Error, Result};
     use tokio::net::{UnixListener, UnixStream};
 
     pub struct Endpoint {
@@ -268,14 +268,14 @@ mod tests {
     #[tokio::test]
     async fn pipe_dacl_does_not_grant_other_local_users() {
         let path = std::env::temp_dir().join(format!(
-            "localdev-dacl-{}-{}",
+            "stackyard-dacl-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("clock")
                 .as_nanos()
         ));
-        let dir = localdev_core::prepare_data_dir(&path).expect("temp dir");
+        let dir = stackyard_core::prepare_data_dir(&path).expect("temp dir");
         let endpoint = super::Endpoint::bind(&dir).expect("bind");
         let sddl = endpoint.dacl_sddl().expect("dacl");
         assert!(!sddl.contains("S-1-1-0"), "everyone ace: {sddl}");

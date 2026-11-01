@@ -1,6 +1,6 @@
-use localdev_core::{default_data_dir, ensure_engine, roundtrip};
-use localdev_core::{Command, Outcome};
 use serde::Serialize;
+use stackyard_core::{default_data_dir, ensure_engine, roundtrip};
+use stackyard_core::{Command, Outcome};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -195,5 +195,5 @@ pub fn run() {
             use_existing
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Local Dev");
+        .expect("error while running Stackyard");
 }

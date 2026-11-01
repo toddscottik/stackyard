@@ -17,8 +17,8 @@ pub use catalog::{catalog_for_host, current_target, find_package, CatalogPackage
 pub use client::{ensure_engine, roundtrip};
 pub use error::{Error, Result};
 pub use install::{
-    adopt_existing, discover_candidates, download_and_install, install_reader, probe_tool,
-    remove_package, select_for_project, Progress, DEFAULT_PROJECT,
+    adopt_existing, discover_candidates, download_and_install, ensure_default_node_manager,
+    install_reader, probe_tool, remove_package, select_for_project, Progress, DEFAULT_PROJECT,
 };
 pub use paths::{default_data_dir, endpoint_id, pipe_path, prepare_data_dir, socket_path};
 pub use protocol::{

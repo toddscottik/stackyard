@@ -8,14 +8,15 @@ use std::process;
 use std::sync::Arc;
 
 use jobs::Jobs;
-use localdev_core::{
+use stackyard_core::{
     adopt_existing, catalog_for_host, check_api_version, discover_candidates, download_and_install,
-    find_package, prepare_data_dir, recv, remove_package, select_for_project, send, Command, Error,
-    Outcome, Progress, Request, Response, Result, Store, API_VERSION,
+    ensure_default_node_manager, find_package, prepare_data_dir, recv, remove_package,
+    select_for_project, send, Command, Error, Outcome, Progress, Request, Response, Result, Store,
+    API_VERSION,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
-pub use localdev_core::Error as EngineError;
+pub use stackyard_core::Error as EngineError;
 
 pub fn serve(data_dir: &Path) -> Result<()> {
     let data_dir = prepare_data_dir(data_dir)?;
@@ -117,7 +118,7 @@ async fn dispatch(
         Command::Discover => Ok(Outcome::Discovered {
             items: discover_candidates()
                 .into_iter()
-                .map(|(role, path)| localdev_core::DiscoveredRuntime {
+                .map(|(role, path)| stackyard_core::DiscoveredRuntime {
                     role,
                     path: path.display().to_string(),
                 })
@@ -169,6 +170,11 @@ fn start_install(jobs: &Arc<Jobs>, data_dir: &Path, catalog_id: &str) -> Result<
     let directory = data_dir.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let result = download_and_install(&directory, &package, &progress);
+        if result.is_ok() && package.name == "node" {
+            if let Err(err) = ensure_default_node_manager(&directory) {
+                eprintln!("pnpm was not installed with Node: {err}");
+            }
+        }
         jobs_for_task.finish(&operation_id, result);
     });
     operation_outcome(jobs, &id)

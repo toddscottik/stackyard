@@ -12,26 +12,26 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> localdev_core::Result<()> {
+fn run() -> stackyard_core::Result<()> {
     let mut args = env::args().skip(1);
     let mut data_dir = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "localdev-engine runs the per-user engine.\n\n\
-                     --data-dir PATH   state directory (default: the per-user localdev directory)\n\
+                    "stackyard-engine runs the per-user engine.\n\n\
+                     --data-dir PATH   state directory (default: the per-user stackyard directory)\n\
                      --help            show this text"
                 );
                 return Ok(());
             }
             "--data-dir" => {
                 data_dir = Some(args.next().ok_or_else(|| {
-                    localdev_core::Error::InvalidMessage("--data-dir needs a path".to_string())
+                    stackyard_core::Error::InvalidMessage("--data-dir needs a path".to_string())
                 })?);
             }
             other => {
-                return Err(localdev_core::Error::InvalidMessage(format!(
+                return Err(stackyard_core::Error::InvalidMessage(format!(
                     "unknown argument {other:?}"
                 )));
             }
@@ -39,6 +39,6 @@ fn run() -> localdev_core::Result<()> {
     }
     let dir = data_dir
         .map(PathBuf::from)
-        .unwrap_or_else(localdev_core::default_data_dir);
-    localdev_engine::serve(&dir)
+        .unwrap_or_else(stackyard_core::default_data_dir);
+    stackyard_engine::serve(&dir)
 }

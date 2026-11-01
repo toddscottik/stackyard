@@ -2,8 +2,8 @@ use std::env;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use localdev_core::{default_data_dir, ensure_engine, roundtrip};
-use localdev_core::{Command, Outcome};
+use stackyard_core::{default_data_dir, ensure_engine, roundtrip};
+use stackyard_core::{Command, Outcome};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -16,7 +16,7 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run() -> localdev_core::Result<()> {
+async fn run() -> stackyard_core::Result<()> {
     let mut args = env::args().skip(1);
     let mut data_dir: Option<PathBuf> = None;
     let mut command: Vec<String> = Vec::new();
@@ -24,7 +24,7 @@ async fn run() -> localdev_core::Result<()> {
         match arg.as_str() {
             "--data-dir" => {
                 let path = args.next().ok_or_else(|| {
-                    localdev_core::Error::InvalidMessage("--data-dir needs a path".to_string())
+                    stackyard_core::Error::InvalidMessage("--data-dir needs a path".to_string())
                 })?;
                 data_dir = Some(PathBuf::from(path));
             }
@@ -46,7 +46,7 @@ async fn run() -> localdev_core::Result<()> {
             print_help();
             Ok(())
         }
-        [cmd] if cmd == "serve" => localdev_engine::serve(&data_dir),
+        [cmd] if cmd == "serve" => stackyard_engine::serve(&data_dir),
         [cmd] if cmd == "status" => {
             let dir = ensure_engine(&data_dir).await?;
             print_outcome(&roundtrip(&dir, Command::Status).await?);
@@ -114,7 +114,7 @@ async fn run() -> localdev_core::Result<()> {
                     if state != "running" {
                         print_outcome(&status);
                         if state != "succeeded" {
-                            return Err(localdev_core::Error::InvalidMessage(format!(
+                            return Err(stackyard_core::Error::InvalidMessage(format!(
                                 "install {state}"
                             )));
                         }
@@ -179,8 +179,8 @@ async fn run() -> localdev_core::Result<()> {
             );
             Ok(())
         }
-        other => Err(localdev_core::Error::InvalidMessage(format!(
-            "unknown command {other:?}; run localdev --help"
+        other => Err(stackyard_core::Error::InvalidMessage(format!(
+            "unknown command {other:?}; run stackyard --help"
         ))),
     }
 }
@@ -188,20 +188,20 @@ async fn run() -> localdev_core::Result<()> {
 fn print_help() {
     let default = default_data_dir();
     println!(
-        "localdev controls the per-user engine.\n\n\
+        "stackyard controls the per-user engine.\n\n\
          Usage:\n  \
-         localdev status\n  \
-         localdev get KEY\n  \
-         localdev put KEY VALUE\n  \
-         localdev stop\n  \
-         localdev serve\n  \
-         localdev catalog\n  \
-         localdev packages\n  \
-         localdev discover\n  \
-         localdev install CATALOG_ID\n  \
-         localdev use-existing ROLE PATH\n  \
-         localdev select PROJECT PACKAGE_ID\n  \
-         localdev remove PACKAGE_ID\n\n\
+         stackyard status\n  \
+         stackyard get KEY\n  \
+         stackyard put KEY VALUE\n  \
+         stackyard stop\n  \
+         stackyard serve\n  \
+         stackyard catalog\n  \
+         stackyard packages\n  \
+         stackyard discover\n  \
+         stackyard install CATALOG_ID\n  \
+         stackyard use-existing ROLE PATH\n  \
+         stackyard select PROJECT PACKAGE_ID\n  \
+         stackyard remove PACKAGE_ID\n\n\
          --data-dir PATH   state directory (default: {})\n\n\
          status, get, put, stop, and package commands start the engine when it is not running.\n\
          serve runs it in the foreground. A second serve exits because the endpoint is already owned.\n\

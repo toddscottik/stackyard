@@ -1,15 +1,15 @@
 [package]
-name = "localdev-cli"
+name = "stackyard-cli"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "localdev"
+name = "stackyard"
 path = "src/main.rs"
 
 [dependencies]
-localdev-core.workspace = true
-localdev-engine.workspace = true
+stackyard-core.workspace = true
+stackyard-engine.workspace = true
 tokio.workspace = true

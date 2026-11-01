@@ -59,8 +59,8 @@ export function App() {
 
   return (
     <main>
-      <h1>Local Dev</h1>
-      <p>Placeholder name. This window and the CLI use the same engine.</p>
+      <h1>Stackyard</h1>
+      <p>This window and the CLI use the same engine. Node uses pnpm.</p>
       {error ? (
         <p role="alert">{error}</p>
       ) : null}
@@ -113,37 +113,69 @@ export function App() {
       </ul>
       {packages.length === 0 ? <p>No packages recorded.</p> : null}
       <ul>
-        {catalog.map((item) => {
-          const installed = packages.find((pkg) => pkg.id === item.id);
-          return (
-            <li key={item.id}>
-              {installed ? (
-                <span>
-                  Installed {item.name} {item.version}
-                  <div>{installed.launch}</div>
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy !== ""}
-                  onClick={() => {
-                    setBusy(item.id);
-                    setError("");
-                    void invoke<string>("install_package", { catalogId: item.id })
-                      .then(() => loadPackages())
-                      .catch((err: unknown) => {
-                        setError(err instanceof Error ? err.message : String(err));
-                      })
-                      .finally(() => setBusy(""));
-                  }}
-                >
-                  {busy === item.id ? "Installing…" : `Install ${item.name} ${item.version}`}
-                </button>
-              )}
-              <span> {item.target}</span>
-            </li>
-          );
-        })}
+        {catalog
+          .filter((item) => item.name === "node" || item.name === "python")
+          .map((item) => {
+            const installed = packages.find((pkg) => pkg.id === item.id);
+            const manager = item.name === "node"
+              ? catalog.find((pkg) => pkg.name === "pnpm")
+              : catalog.find((pkg) => pkg.name === "uv");
+            const managerInstalled = manager
+              ? packages.find((pkg) => pkg.id === manager.id)
+              : undefined;
+            return (
+              <li key={item.id}>
+                {installed ? (
+                  <span>
+                    Installed {item.name} {item.version}
+                    <div>{installed.launch}</div>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy !== ""}
+                    onClick={() => {
+                      setBusy(item.id);
+                      setError("");
+                      void invoke<string>("install_package", { catalogId: item.id })
+                        .then(() => loadPackages())
+                        .catch((err: unknown) => {
+                          setError(err instanceof Error ? err.message : String(err));
+                        })
+                        .finally(() => setBusy(""));
+                    }}
+                  >
+                    {busy === item.id ? "Installing…" : `Install ${item.name} ${item.version}`}
+                  </button>
+                )}
+                {manager ? (
+                  <div>
+                    {item.name === "node" ? "Package manager: pnpm" : "Helper: uv"}{" "}
+                    {managerInstalled ? (
+                      <span>installed {managerInstalled.version}</span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy !== ""}
+                        onClick={() => {
+                          setBusy(manager.id);
+                          setError("");
+                          void invoke<string>("install_package", { catalogId: manager.id })
+                            .then(() => loadPackages())
+                            .catch((err: unknown) => {
+                              setError(err instanceof Error ? err.message : String(err));
+                            })
+                            .finally(() => setBusy(""));
+                        }}
+                      >
+                        {busy === manager.id ? "Installing…" : `Install ${manager.name}`}
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
       </ul>
       <form
         onSubmit={(event) => {

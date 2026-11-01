@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use localdev_core::{Error, PackageRecord};
+use stackyard_core::{Error, PackageRecord};
 
 #[derive(Clone)]
 pub struct Operation {

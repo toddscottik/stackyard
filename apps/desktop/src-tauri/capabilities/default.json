@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Local Dev main window",
+  "description": "Stackyard main window",
   "windows": ["main"],
   "permissions": ["core:default"]
 }

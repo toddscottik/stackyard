@@ -3,16 +3,25 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 
-const DIR_NAME: &str = "localdev";
+const DIR_NAME: &str = "stackyard";
 
 /// Per-user application state. This directory is created only by
 /// [`prepare_data_dir`], so tests can ask for the path without touching disk.
 pub fn default_data_dir() -> PathBuf {
-    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+    let dir = if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         if cfg!(windows) {
-            return PathBuf::from(local).join(DIR_NAME);
+            PathBuf::from(local).join(DIR_NAME)
+        } else {
+            home_data_dir()
         }
-    }
+    } else {
+        home_data_dir()
+    };
+    adopt_previous_data_dir(&dir);
+    dir
+}
+
+fn home_data_dir() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
         if cfg!(target_os = "macos") {
@@ -24,6 +33,20 @@ pub fn default_data_dir() -> PathBuf {
         return home.join(".local").join("share").join(DIR_NAME);
     }
     std::env::temp_dir().join(DIR_NAME)
+}
+
+/// The first branded build keeps data that was stored under the placeholder name.
+fn adopt_previous_data_dir(new_dir: &Path) {
+    if new_dir.exists() {
+        return;
+    }
+    let Some(parent) = new_dir.parent() else {
+        return;
+    };
+    let previous = parent.join("localdev");
+    if previous.is_dir() {
+        let _ = fs::rename(&previous, new_dir);
+    }
 }
 
 pub fn prepare_data_dir(path: &Path) -> Result<PathBuf> {
@@ -52,7 +75,7 @@ pub fn endpoint_id(data_dir: &Path) -> String {
 }
 
 pub fn pipe_path(data_dir: &Path) -> String {
-    format!(r"\\.\pipe\localdev-engine-{}", endpoint_id(data_dir))
+    format!(r"\\.\pipe\stackyard-engine-{}", endpoint_id(data_dir))
 }
 
 pub fn socket_path(data_dir: &Path) -> PathBuf {
@@ -72,7 +95,7 @@ mod tests {
     #[test]
     fn endpoint_id_ignores_a_trailing_slash_after_canonicalize() {
         let root = std::env::temp_dir().join(format!(
-            "localdev-path-{}-{}",
+            "stackyard-path-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

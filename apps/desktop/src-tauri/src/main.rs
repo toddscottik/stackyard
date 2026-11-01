@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    localdev_desktop_lib::run();
+    stackyard_desktop_lib::run();
 }

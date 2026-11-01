@@ -167,7 +167,7 @@ mod tests {
             writer.finish().expect("finish");
         }
         let root = std::env::temp_dir().join(format!(
-            "localdev-zip-{}-{}",
+            "stackyard-zip-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
