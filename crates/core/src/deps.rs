@@ -663,10 +663,11 @@ command = ["python", "serve"]
     #[test]
     fn npm_plan_uses_the_lockfile_command() {
         let root = write_project(&node_manifest("npm"), &[("package-lock.json", "{}\n")]);
-        let node = root.join("bin/node");
+        let node = root.join("bin").join(if cfg!(windows) { "node.exe" } else { "node" });
         fs::create_dir_all(node.parent().unwrap()).unwrap();
         fs::write(&node, b"node").unwrap();
-        fs::write(node.parent().unwrap().join("npm"), b"npm").unwrap();
+        let npm_name = if cfg!(windows) { "npm.cmd" } else { "npm" };
+        fs::write(node.parent().unwrap().join(npm_name), b"npm").unwrap();
         let manifest =
             parse_manifest(&fs::read_to_string(root.join("stackyard.toml")).unwrap()).unwrap();
         let plan = plan_dependency(
