@@ -88,10 +88,23 @@ pub struct ServiceSpec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SiteKind {
+    Proxy { service_id: String },
+    Static { root: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiteSpec {
+    pub host: String,
+    pub kind: SiteKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
     pub name: String,
     pub manager: Option<ManagerKind>,
     pub services: Vec<ServiceSpec>,
+    pub site: Option<SiteSpec>,
 }
 
 impl Manifest {
@@ -171,9 +184,16 @@ fn validate(raw: RawManifest) -> Result<Manifest> {
         });
     }
     validate_name(&raw.name)?;
-    if raw.service.is_empty() {
+    if raw.service.is_empty()
+        && raw
+            .site
+            .as_ref()
+            .and_then(|site| site.root.as_ref())
+            .is_none()
+    {
         return Err(Error::InvalidManifest {
-            detail: "at least one [[service]] is required".to_string(),
+            detail: "at least one [[service]] is required, or a [site] with root for static files"
+                .to_string(),
         });
     }
     let manager = match raw.manager {
@@ -194,10 +214,15 @@ fn validate(raw: RawManifest) -> Result<Manifest> {
         }
         services.push(validate_service(service)?);
     }
+    let site = match raw.site {
+        Some(site) => Some(validate_site(&raw.name, &services, site)?),
+        None => None,
+    };
     let manifest = Manifest {
         name: raw.name,
         manager,
         services,
+        site,
     };
     let _ = start_order(&manifest.services)?;
     if let Some(manager) = manifest.manager {
@@ -214,6 +239,40 @@ fn validate(raw: RawManifest) -> Result<Manifest> {
         }
     }
     Ok(manifest)
+}
+
+fn validate_site(name: &str, services: &[ServiceSpec], raw: RawSite) -> Result<SiteSpec> {
+    let host = match raw.host {
+        Some(host) => crate::apache::validate_host(&host, true)?,
+        None => crate::apache::default_host(name)?,
+    };
+    let has_service = raw.service.is_some();
+    let has_root = raw.root.is_some();
+    let kind = match (raw.service, raw.root) {
+        (Some(service_id), None) => {
+            if !services.iter().any(|service| service.id == service_id) {
+                return Err(Error::InvalidManifest {
+                    detail: format!("site proxies unknown service {service_id}"),
+                });
+            }
+            SiteKind::Proxy { service_id }
+        }
+        (None, Some(root)) => {
+            let _ = relative_directory(&root)?;
+            SiteKind::Static { root }
+        }
+        _ => {
+            return Err(Error::InvalidManifest {
+                detail: if has_service && has_root {
+                    "site sets both service and root; choose a proxy or a static directory"
+                        .to_string()
+                } else {
+                    "site needs service or root".to_string()
+                },
+            });
+        }
+    };
+    Ok(SiteSpec { host, kind })
 }
 
 fn validate_service(raw: RawService) -> Result<ServiceSpec> {
@@ -415,6 +474,19 @@ struct RawManifest {
     manager: Option<String>,
     #[serde(default)]
     service: Vec<RawService>,
+    #[serde(default)]
+    site: Option<RawSite>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSite {
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    service: Option<String>,
+    #[serde(default)]
+    root: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -63,6 +63,10 @@ pub enum Error {
     },
     #[error("127.0.0.1:{port} is already in use")]
     PortInUse { port: u16 },
+    #[error(
+        "127.0.0.1:{port} is already in use. Stackyard did not stop the program listening there. Available high ports: {alternatives}"
+    )]
+    FrontPortBusy { port: u16, alternatives: String },
     #[error("project {id} is already {state}")]
     ProjectBusy { id: String, state: String },
     #[error("{context}: {source}")]

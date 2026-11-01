@@ -48,6 +48,24 @@ export type Operation = {
   message: string;
 };
 export type Task = { id: string; label: string; state: string; message: string };
+export type FrontSite = {
+  projectId: string;
+  host: string;
+  mode: string;
+  upstream: string;
+  httpUrl: string;
+  httpsUrl: string;
+};
+export type Front = {
+  state: string;
+  pid: number | null;
+  httpPort: number;
+  httpsPort: number;
+  restartImpact: string;
+  caPath: string;
+  resolvesLocalhost: boolean;
+  sites: FrontSite[];
+};
 export type Logs = { offset: number; nextOffset: number; text: string };
 
 export function engineAvailable(): boolean {
@@ -91,4 +109,9 @@ export const api = {
   cancelTask: (operationId: string) => invoke<Task>("cancel_task", { operationId }),
   openProject: (projectId: string, action: string, serviceId: string) =>
     invoke<void>("open_project", { projectId, action, serviceId }),
+  front: () => invoke<Front>("front_status"),
+  publish: (projectId: string) => invoke<Front>("publish_project", { projectId }),
+  unpublish: (projectId: string) => invoke<Front>("unpublish_project", { projectId }),
+  restartFront: () => invoke<Front>("restart_front"),
+  openSite: (url: string) => invoke<void>("open_site", { url }),
 };

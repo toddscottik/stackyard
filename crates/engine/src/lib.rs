@@ -2,6 +2,7 @@
 
 mod control;
 mod endpoint;
+mod front;
 mod group;
 mod jobs;
 mod supervisor;
@@ -22,6 +23,7 @@ use supervisor::Supervisor;
 use tasks::TaskBoard;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
+pub use front::Front;
 pub use stackyard_core::Error as EngineError;
 
 pub fn serve(data_dir: &Path) -> Result<()> {
@@ -38,18 +40,28 @@ async fn listen(data_dir: PathBuf) -> Result<()> {
     let jobs = Jobs::new();
     let tasks = TaskBoard::new();
     let supervisor = supervisor::new(data_dir.clone());
+    let front = Arc::new(front::Front::new(data_dir.clone()));
     supervisor.reconcile()?;
     let mut endpoint = endpoint::Endpoint::bind(&data_dir)?;
     loop {
         let mut client = endpoint.accept().await?;
-        let stop =
-            match handle_client(&mut client, &store, &data_dir, &jobs, &tasks, &supervisor).await {
-                Ok(stop) => stop,
-                Err(err) => {
-                    eprintln!("engine client: {err}");
-                    false
-                }
-            };
+        let stop = match handle_client(
+            &mut client,
+            &store,
+            &data_dir,
+            &jobs,
+            &tasks,
+            &supervisor,
+            &front,
+        )
+        .await
+        {
+            Ok(stop) => stop,
+            Err(err) => {
+                eprintln!("engine client: {err}");
+                false
+            }
+        };
         if stop {
             break;
         }
@@ -64,6 +76,7 @@ async fn handle_client<S>(
     jobs: &Arc<Jobs>,
     tasks: &Arc<TaskBoard>,
     supervisor: &Arc<Supervisor>,
+    front: &Arc<front::Front>,
 ) -> Result<bool>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -72,7 +85,7 @@ where
         let mut reader = BufReader::new(&mut *stream);
         recv(&mut reader).await?
     };
-    let response = match dispatch(&request, store, data_dir, jobs, tasks, supervisor).await {
+    let response = match dispatch(&request, store, data_dir, jobs, tasks, supervisor, front).await {
         Ok(outcome) => Response {
             v: API_VERSION,
             id: request.id.clone(),
@@ -101,6 +114,7 @@ async fn dispatch(
     jobs: &Arc<Jobs>,
     tasks: &Arc<TaskBoard>,
     supervisor: &Arc<Supervisor>,
+    front: &front::Front,
 ) -> Result<Outcome> {
     check_api_version(request.v)?;
     match &request.cmd {
@@ -123,6 +137,7 @@ async fn dispatch(
             })
         }
         Command::Stop => {
+            front.shutdown();
             supervisor.shutdown();
             Ok(Outcome::Stopped)
         }
@@ -257,6 +272,17 @@ async fn dispatch(
             }
             control::task_outcome(tasks, operation_id)
         }
+        Command::FrontStatus => front.status(),
+        Command::PublishProject { project_id } => front.publish(project_id),
+        Command::UnpublishProject { project_id } => front.unpublish(project_id),
+        Command::RestartFront => front.restart(),
+        Command::SetFrontPorts {
+            http_port,
+            https_port,
+        } => front.set_ports(*http_port, *https_port),
+        Command::TrustInstall { directory } => front.trust_install(Path::new(directory)),
+        Command::TrustRemove { directory } => front.trust_remove(Path::new(directory)),
+        Command::WriteHosts { path } => front.write_hosts(Path::new(path)),
     }
 }
 

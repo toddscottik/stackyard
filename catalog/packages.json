@@ -53,6 +53,19 @@
       "digest_source": "https://api.github.com/repos/pnpm/pnpm/releases/tags/v12.16.1",
       "launch": "pnpm.exe",
       "version_args": ["--version"]
+    },
+    {
+      "id": "apache-2.4.69-windows-x64",
+      "kind": "server",
+      "name": "apache",
+      "version": "2.4.69",
+      "target": "windows-x64",
+      "format": "zip",
+      "url": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip",
+      "sha256": "77d715d0d9cee731e2251e7ddc2090a7a8e6d41fedef2e9827cd918593c5a652",
+      "digest_source": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip.txt",
+      "launch": "Apache24/bin/httpd.exe",
+      "version_args": ["-v"]
     }
   ]
 }

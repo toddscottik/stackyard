@@ -5,6 +5,7 @@ import {
   errorText,
   type CatalogItem,
   type Installed,
+  type Front,
   type Operation,
   type Project,
   type Service,
@@ -28,6 +29,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [packages, setPackages] = useState<Installed[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [front, setFront] = useState<Front | null>(null);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
   const [desktop, setDesktop] = useState(true);
@@ -43,16 +45,18 @@ export function App() {
       setError("Open the Stackyard desktop window to reach the engine.");
       return;
     }
-    const [nextStatus, nextProjects, nextPackages, nextCatalog] = await Promise.all([
+    const [nextStatus, nextProjects, nextPackages, nextCatalog, nextFront] = await Promise.all([
       api.status(),
       api.projects(),
       api.packages(),
       api.catalog(),
+      api.front(),
     ]);
     setStatus(nextStatus);
     setProjects(nextProjects);
     setPackages(nextPackages);
     setCatalog(nextCatalog);
+    setFront(nextFront);
     setSelectedId((current) => {
       if (current === null) {
         return nextProjects[0]?.id ?? "";
@@ -164,7 +168,9 @@ export function App() {
               projects={projects}
               selected={selected}
               packages={packages}
+              front={front}
               desktop={desktop}
+              onFront={setFront}
               onSelect={setSelectedId}
               onError={report}
               onProgress={setProgress}
@@ -234,8 +240,10 @@ function Projects({
   projects,
   selected,
   packages,
+  front,
   desktop,
   onSelect,
+  onFront,
   onError,
   onProgress,
   onRefresh,
@@ -244,8 +252,10 @@ function Projects({
   projects: Project[];
   selected: Project | null;
   packages: Installed[];
+  front: Front | null;
   desktop: boolean;
   onSelect: (id: string) => void;
+  onFront: (front: Front) => void;
   onError: (err: unknown) => void;
   onProgress: (text: string) => void;
   onRefresh: () => void;
@@ -330,6 +340,41 @@ function Projects({
   return (
     <>
       <p className="finding">{finding}</p>
+      {front ? (
+        <section className="block" aria-label="Apache">
+          <h2>Apache</h2>
+          <p className="hint">
+            Apache is {front.state}. HTTP <span className="mono">{front.httpPort}</span>, HTTPS{" "}
+            <span className="mono">{front.httpsPort}</span>. {front.restartImpact}
+          </p>
+          {front.resolvesLocalhost ? null : (
+            <p className="hint">
+              This machine does not resolve names under .localhost. A hosts entry is required before a browser can open a site.
+            </p>
+          )}
+          {front.sites.length > 0 ? (
+            <button
+              type="button"
+              className="btn"
+              disabled={!desktop}
+              onClick={() =>
+                void run("Restarting Apache…", async () => {
+                  onFront(await api.restartFront());
+                })
+              }
+            >
+              Restart Apache
+            </button>
+          ) : null}
+        </section>
+      ) : (
+        <section className="block" aria-label="Apache">
+          <h2>Apache</h2>
+          <p className="hint">
+            One Apache serves every published site. Restarting it interrupts every site. Status appears when this window can reach the engine.
+          </p>
+        </section>
+      )}
       <div className={selected ? "split picked" : "split"}>
         <section className="pane list-pane" aria-label="Project list">
           <form
@@ -398,7 +443,9 @@ function Projects({
               scope={scope}
               task={task}
               desktop={desktop}
+              front={front}
               primaryLabel={job?.label ?? ""}
+              onFront={onFront}
               onService={setServiceId}
               onPackageName={setPackageName}
               onScope={setScope}
@@ -436,7 +483,11 @@ id = "web"
 runtime = "node"
 command = ["pnpm", "run", "dev"]
 port = 3000
-ready_path = "/"`;
+ready_path = "/"
+
+[site]
+service = "web"
+host = "site.localhost"`;
 
 function EmptyDetail() {
   return (
@@ -507,6 +558,76 @@ function pillClass(state: string): string {
   return "pill";
 }
 
+function SiteActions({
+  projectId,
+  front,
+  desktop,
+  onFront,
+  onRun,
+}: {
+  projectId: string;
+  front: Front | null;
+  desktop: boolean;
+  onFront: (front: Front) => void;
+  onRun: (label: string, action: () => Promise<void>) => Promise<void>;
+}) {
+  const site = front?.sites.find((item) => item.projectId === projectId) ?? null;
+  if (!front) {
+    return null;
+  }
+  return (
+    <div className="block">
+      <h3>Site</h3>
+      {site ? (
+        <>
+          <p className="hint">
+            <span className="mono">{site.host}</span> · {site.mode} · {site.upstream}
+          </p>
+          <p className="mono">{site.httpsUrl}</p>
+          <div className="row">
+            <button
+              type="button"
+              className="btn"
+              disabled={!desktop}
+              onClick={() => void onRun("Opening site…", () => api.openSite(site.httpsUrl))}
+            >
+              Open site
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={!desktop}
+              onClick={() =>
+                void onRun("Unpublishing…", async () => {
+                  onFront(await api.unpublish(projectId));
+                })
+              }
+            >
+              Unpublish
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="hint">Publish uses the [site] table. A proxy follows the service port. A root serves files, including .htaccess.</p>
+          <button
+            type="button"
+            className="btn"
+            disabled={!desktop}
+            onClick={() =>
+              void onRun("Publishing…", async () => {
+                onFront(await api.publish(projectId));
+              })
+            }
+          >
+            Publish
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ProjectDetail({
   project,
   packages,
@@ -516,7 +637,9 @@ function ProjectDetail({
   scope,
   task,
   desktop,
+  front,
   primaryLabel,
+  onFront,
   onService,
   onPackageName,
   onScope,
@@ -535,7 +658,9 @@ function ProjectDetail({
   scope: string;
   task: Task | null;
   desktop: boolean;
+  front: Front | null;
   primaryLabel: string;
+  onFront: (front: Front) => void;
   onService: (id: string) => void;
   onPackageName: (value: string) => void;
   onScope: (value: string) => void;
@@ -566,6 +691,7 @@ function ProjectDetail({
     <>
       <h2 id="detail-heading">{project.name}</h2>
       <p className="path mono">{project.root}</p>
+      <SiteActions projectId={project.id} front={front} desktop={desktop} onFront={onFront} onRun={onRun} />
       <div className="row lifecycle">
         <button
           type="button"
@@ -927,6 +1053,7 @@ function Components({
                 <option value="python">Python</option>
                 <option value="pnpm">pnpm</option>
                 <option value="uv">uv</option>
+                <option value="apache">Apache</option>
               </select>
             </div>
             <div className="field">

@@ -26,5 +26,6 @@ tar = "0.4.44"
 flate2 = "1.1.2"
 ureq = "2.12.1"
 toml = "0.8.23"
+rcgen = { version = "0.13.2", features = ["x509-parser"] }
 stackyard-core = { path = "crates/core" }
 stackyard-engine = { path = "crates/engine" }

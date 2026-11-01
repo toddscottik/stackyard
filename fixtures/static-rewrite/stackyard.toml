@@ -1,0 +1,6 @@
+schema = 1
+name = "static-rewrite"
+
+[site]
+root = "public"
+host = "rewrite.localhost"

@@ -10,3 +10,7 @@ ready_path = "/"
 ready_timeout_secs = 60
 port = 0
 restart = "never"
+
+[site]
+service = "web"
+host = "next-app.localhost"

@@ -106,6 +106,27 @@ pub enum Command {
     DepCancel {
         operation_id: String,
     },
+    FrontStatus,
+    PublishProject {
+        project_id: String,
+    },
+    UnpublishProject {
+        project_id: String,
+    },
+    RestartFront,
+    SetFrontPorts {
+        http_port: u16,
+        https_port: u16,
+    },
+    TrustInstall {
+        directory: String,
+    },
+    TrustRemove {
+        directory: String,
+    },
+    WriteHosts {
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +189,26 @@ pub enum Outcome {
         state: String,
         message: String,
     },
+    Front {
+        state: String,
+        pid: Option<u32>,
+        http_port: u16,
+        https_port: u16,
+        restart_impact: String,
+        ca_path: String,
+        resolves_localhost: bool,
+        sites: Vec<SiteView>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SiteView {
+    pub project_id: String,
+    pub host: String,
+    pub mode: String,
+    pub upstream: String,
+    pub http_url: String,
+    pub https_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

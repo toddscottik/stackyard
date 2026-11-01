@@ -14,6 +14,8 @@ Repository working rules are in [AGENTS.md](AGENTS.md). For parallel development
 
 Stage 0 recorded Windows package probes. macOS package execution is still pending on the M1 Pro. Stage 4 is the desktop: Projects, Components, and Settings call the engine. Closing the window hides it; Quit stops managed projects unless background mode is on. Linux UI evidence is in `docs/evidence/S4-DESKTOP.md`. Windows and macOS window checks are still pending.
 
+Stage 5 publishes projects through one Apache. A `[site]` table proxies a service or serves a directory. The listener stays on high loopback ports. Evidence is in `docs/evidence/S5-APACHE.md`.
+
 Development commands, from the repository root:
 
 ```text
@@ -28,6 +30,9 @@ cargo run -p stackyard-cli -- import PATH
 cargo run -p stackyard-cli -- start PROJECT
 cargo run -p stackyard-cli -- stop-project PROJECT
 cargo run -p stackyard-cli -- deps install PROJECT
+cargo run -p stackyard-cli -- publish PROJECT
+cargo run -p stackyard-cli -- sites
+cargo run -p stackyard-cli -- apache restart
 npm --prefix apps/desktop install
 npm --prefix apps/desktop run dev
 ```
