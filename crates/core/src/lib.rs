@@ -18,6 +18,7 @@ mod project;
 mod protocol;
 mod store;
 mod transport;
+mod updates;
 
 pub use apache::{
     accept_listen_port, create_ca, default_host, fingerprint, free_high_ports, issue_leaf,
@@ -64,3 +65,7 @@ pub use store::{
     PublicationRecord, SqliteRecord, Store,
 };
 pub use transport::{recv, send};
+pub use updates::{
+    cleanup_unused, mark_install_finished, mark_install_running, reconcile_interrupted,
+    record_external_version, refresh_updates, switch_project, UpdateNotice,
+};

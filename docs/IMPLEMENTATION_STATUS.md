@@ -24,7 +24,7 @@ Updated: 1 November 2026.
 | 4: desktop workflows | Partial. Desktop screens and tray policy are implemented as of 1 November 2026. A live window was not opened on Windows 10 or macOS 14.5 | Open the desktop on those machines and run one project through import, install, start, logs, restart, and stop |
 | 5: Apache/HTTPS | Partial. Linux x86_64 shared Apache, proxy, static rewrite, and generated HTTPS passed on 1 November 2026. Windows catalog pin is the Stage 0 zip and was not launched again. macOS Apache remains blocked | Launch the Windows catalog Apache on Windows 10. Keep macOS blocked until a relocatable arm64 archive exists. System trust and ports 80/443 stay pending |
 | 6: databases | Partial. Linux x86_64 MySQL 8.0.46, PostgreSQL 16.15, and SQLite 3.45.1 passed on 1 November 2026. Windows catalog PostgreSQL was not launched again. MySQL has no SHA256 catalog entry. macOS database archives stay blocked | Launch the Windows catalog PostgreSQL on Windows 10. Leave MySQL out of the catalog until a SHA256 exists. Leave macOS blocked until an approved archive exists. Credential Manager and Keychain remain pending |
-| 7: updates/recovery | Not started | Side-by-side updates and interrupted-operation recovery |
+| 7: updates/recovery | Partial. Linux x86_64 notice, switch, cleanup, and interrupted-install checks passed on 1 November 2026. No second digest-checked Node or Python pin was downloaded | Download a newer checked Node or Python pin on Windows 10 and switch one project there. Leave macOS pins out until a payload check |
 | 8: personal release | Not started | Real-project acceptance on Windows and Mac |
 | 8A: PHP/extensions | Not started | PHP/Composer, native extension profiles, Memcached server/client feasibility and integration |
 | 9: public release | Deferred | Distribution/license decisions, release pipeline and expanded coverage |
@@ -127,3 +127,19 @@ Commands and outcomes on this machine:
 Details: `docs/evidence/S6-DATABASES.md` and `docs/decisions/0004-databases.md`.
 
 Next task: launch the Windows catalog PostgreSQL on Windows 10. Do not add MySQL to the catalog without a SHA256. Leave macOS MySQL and PostgreSQL blocked. Do not treat these distro 8.0 and 16 servers as the Windows 8.4 and 18.6 checks, and do not treat secret files as Credential Manager or Keychain.
+
+## Stage 7 worker handoff
+
+1 November 2026. Slice: S7-UPDATES. Executed on Linux x86_64 (`uname` 6.12.94+, rustc 1.99.1). This is not the Windows 10 or macOS 14.5 acceptance machine.
+
+Refresh reads the bundled catalog and a news list with no download URL. A compatible runtime can be installed beside the current one and selected for one project. The previous selection is recorded and the other project is left alone. MySQL and PostgreSQL version changes stay on the migration error. An external file is not overwritten when its observed version differs. A missing launch file keeps the selection. An install journal left running loses only its incoming directory on the next engine start. Cleanup refuses a package a project still selects, including a running project. `deps recover` reinstalls from the lockfile and does not claim to roll scripts back. Application updates are a notice.
+
+Commands and outcomes on this machine:
+
+- `cargo test --workspace --exclude stackyard-desktop --offline` passed, including the update unit tests and `interrupted_install_is_cleared_and_a_cached_project_stays_listed`.
+- `cargo test -p stackyard-desktop --lib --offline` passed. `npx tsc --noEmit` in `apps/desktop` passed.
+- Chrome on the Vite page showed the Updates block. Check and cleanup need the desktop engine, which that browser does not have.
+
+Details: `docs/evidence/S7-UPDATES.md` and `docs/decisions/0005-updates.md`.
+
+Next task: add a second digest-checked Node or Python pin only after the payload is verified, then download it on Windows 10 and switch one project. Do not fetch an unchecked upstream release into the catalog. Leave macOS pins out until a payload check.

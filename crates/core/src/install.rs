@@ -262,9 +262,14 @@ pub fn remove_package(data_dir: &Path, id: &str) -> Result<()> {
         });
     }
     if store.package_is_selected(id)? {
+        let running = store.package_has_running_project(id)?;
         return Err(Error::NotRemovable {
             id: id.to_string(),
-            reason: "a project selection still uses it".to_string(),
+            reason: if running {
+                "a running project still uses it".to_string()
+            } else {
+                "a project selection still uses it".to_string()
+            },
         });
     }
     let path = PathBuf::from(&package.path);
@@ -281,13 +286,7 @@ pub fn remove_package(data_dir: &Path, id: &str) -> Result<()> {
 }
 
 pub fn select_for_project(data_dir: &Path, project_id: &str, package_id: &str) -> Result<()> {
-    let store = Store::open(data_dir)?;
-    let Some(package) = store.get_package(package_id)? else {
-        return Err(Error::PackageNotFound {
-            id: package_id.to_string(),
-        });
-    };
-    store.select_package(project_id, &package.name, package_id)
+    crate::updates::switch_project(data_dir, project_id, package_id)
 }
 
 pub fn probe_tool(launch: &Path, args: &[String], runtime_dir: Option<&Path>) -> Result<String> {

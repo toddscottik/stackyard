@@ -12,6 +12,7 @@ import {
   type Service,
   type Status,
   type Task,
+  type UpdateNotice,
 } from "./api";
 
 type Section = "projects" | "components" | "databases" | "settings";
@@ -1247,6 +1248,7 @@ function Components({
   const [role, setRole] = useState("python");
   const [path, setPath] = useState("");
   const [operation, setOperation] = useState<Operation | null>(null);
+  const [notices, setNotices] = useState<UpdateNotice[]>([]);
   const finding =
     packages.length === 0
       ? "No runtime is recorded on this machine."
@@ -1373,6 +1375,66 @@ function Components({
           </form>
         </section>
       </div>
+      <section className="block" aria-label="Updates">
+        <h2>Updates</h2>
+        <p className="hint">
+          A runtime update installs beside the current one. Switching a project is separate, and the other projects keep their selection. Dependency updates stay on the project. Application updates are not downloaded here. News is not a package.
+        </p>
+        {desktop ? null : <p className="empty">Update notices appear when this window can reach the engine.</p>}
+        <div className="row">
+          <button
+            type="button"
+            className="btn"
+            disabled={!desktop}
+            onClick={() => {
+              onProgress("Checking updates…");
+              void api
+                .updates()
+                .then((next) => {
+                  setNotices(next);
+                  onProgress("");
+                })
+                .catch((err: unknown) => {
+                  onProgress("");
+                  onError(err);
+                });
+            }}
+          >
+            Check updates
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={!desktop}
+            onClick={() => {
+              onProgress("Removing unused packages…");
+              void api
+                .cleanupUnused()
+                .then((next) => {
+                  setNotices(next);
+                  onProgress("");
+                  onRefresh();
+                })
+                .catch((err: unknown) => {
+                  onProgress("");
+                  onError(err);
+                });
+            }}
+          >
+            Remove unused packages
+          </button>
+        </div>
+        {notices.length === 0 ? <p className="empty">No update notice yet.</p> : null}
+        <ul className="slips">
+          {notices.map((notice) => (
+            <li key={`${notice.kind}:${notice.subject}`} className="slip">
+              <span className="slip-name">{notice.subject}</span>
+              <span className="pill">{notice.kind}</span>
+              <span className="slip-sub">{notice.detail}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
       <section className="block">
         <h2>External connections</h2>
         <p className="hint">

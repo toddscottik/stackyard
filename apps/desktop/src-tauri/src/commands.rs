@@ -678,6 +678,38 @@ pub async fn sqlite_use(project_id: String, path: String) -> Result<DatabasesVie
     databases_view(call(Command::SqliteUse { project_id, path }).await?)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateNoticeView {
+    kind: String,
+    subject: String,
+    detail: String,
+}
+
+fn update_notices(outcome: Outcome) -> Result<Vec<UpdateNoticeView>, String> {
+    match outcome {
+        Outcome::Updates { notices } => Ok(notices
+            .into_iter()
+            .map(|notice| UpdateNoticeView {
+                kind: notice.kind,
+                subject: notice.subject,
+                detail: notice.detail,
+            })
+            .collect()),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
+pub async fn list_updates() -> Result<Vec<UpdateNoticeView>, String> {
+    update_notices(call(Command::RefreshUpdates).await?)
+}
+
+#[tauri::command]
+pub async fn cleanup_unused() -> Result<Vec<UpdateNoticeView>, String> {
+    update_notices(call(Command::CleanupUnused).await?)
+}
+
 #[tauri::command]
 pub async fn open_site(url: String) -> Result<(), String> {
     let url = accept_site_url(&url)?;

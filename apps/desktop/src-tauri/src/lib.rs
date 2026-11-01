@@ -42,7 +42,9 @@ pub fn run() {
             commands::database_stop,
             commands::database_attach,
             commands::database_detach,
-            commands::sqlite_use
+            commands::sqlite_use,
+            commands::list_updates,
+            commands::cleanup_unused
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Show Stackyard", true, None::<&str>)?;

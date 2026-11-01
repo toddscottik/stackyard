@@ -67,6 +67,7 @@ export type Front = {
   sites: FrontSite[];
 };
 export type Logs = { offset: number; nextOffset: number; text: string };
+export type UpdateNotice = { kind: string; subject: string; detail: string };
 export type DbInstance = {
   id: string;
   engine: string;
@@ -156,4 +157,6 @@ export const api = {
   detachDatabase: (projectId: string, connectionId: string) =>
     invoke<Databases>("database_detach", { projectId, connectionId }),
   useSqlite: (projectId: string, path: string) => invoke<Databases>("sqlite_use", { projectId, path }),
+  updates: () => invoke<UpdateNotice[]>("list_updates"),
+  cleanupUnused: () => invoke<UpdateNotice[]>("cleanup_unused"),
 };
