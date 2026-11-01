@@ -678,15 +678,7 @@ mod tests {
     use crate::paths::prepare_data_dir;
 
     fn temp_dir() -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "stackyard-store-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
-        prepare_data_dir(&path).expect("temp dir")
+        prepare_data_dir(&crate::paths::disposable_dir("store")).expect("temp dir")
     }
 
     #[test]

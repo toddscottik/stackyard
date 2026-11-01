@@ -131,14 +131,7 @@ mod tests {
 
     #[test]
     fn log_rotates_and_reads_from_an_offset() {
-        let dir = std::env::temp_dir().join(format!(
-            "stackyard-log-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let dir = crate::paths::disposable_dir("log");
         fs::create_dir_all(&dir).expect("dir");
         let path = dir.join("web.log");
         append_log_limited(&path, b"aaaa", 8).expect("first");

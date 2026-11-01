@@ -647,14 +647,7 @@ mod tests {
 
     #[test]
     fn marked_hosts_lines_round_trip_without_touching_other_names() {
-        let dir = std::env::temp_dir().join(format!(
-            "stackyard-hosts-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir = stackyard_core::disposable_dir("hosts");
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("hosts");
         fs::write(&path, "10.1.1.1 kept.example\n").unwrap();

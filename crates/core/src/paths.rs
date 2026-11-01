@@ -49,6 +49,26 @@ fn adopt_previous_data_dir(new_dir: &Path) {
     }
 }
 
+/// A new directory path that stays unique when the clock does not move.
+///
+/// Windows often reports the same `SystemTime` for calls in one tick. Tests
+/// that start together must not share a data directory, because that directory
+/// is also the engine pipe name.
+pub fn disposable_dir(label: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "stackyard-{label}-{}-{nanos}-{n}",
+        std::process::id()
+    ))
+}
+
 pub fn prepare_data_dir(path: &Path) -> Result<PathBuf> {
     fs::create_dir_all(path).map_err(|source| Error::io("create data directory", source))?;
     #[cfg(unix)]
@@ -115,14 +135,7 @@ mod tests {
 
     #[test]
     fn endpoint_id_ignores_a_trailing_slash_after_canonicalize() {
-        let root = std::env::temp_dir().join(format!(
-            "stackyard-path-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let root = disposable_dir("path");
         let prepared = prepare_data_dir(&root).expect("prepare");
         let again = prepare_data_dir(&prepared).expect("prepare again");
         assert_eq!(endpoint_id(&prepared), endpoint_id(&again));

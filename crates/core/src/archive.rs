@@ -166,14 +166,7 @@ mod tests {
             writer.write_all(b"nope").expect("write");
             writer.finish().expect("finish");
         }
-        let root = std::env::temp_dir().join(format!(
-            "stackyard-zip-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let root = crate::paths::disposable_dir("zip");
         fs::create_dir_all(&root).expect("root");
         let archive = root.join("bad.zip");
         fs::write(&archive, cursor.into_inner()).expect("archive");

@@ -534,14 +534,7 @@ mod tests {
     use std::fs;
 
     fn temp_dir() -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "stackyard-project-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let path = crate::paths::disposable_dir("project");
         prepare_data_dir(&path).expect("dir")
     }
 

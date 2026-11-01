@@ -298,14 +298,7 @@ impl Endpoint {
 mod tests {
     #[tokio::test]
     async fn pipe_dacl_does_not_grant_other_local_users() {
-        let path = std::env::temp_dir().join(format!(
-            "stackyard-dacl-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let path = stackyard_core::disposable_dir("dacl");
         let dir = stackyard_core::prepare_data_dir(&path).expect("temp dir");
         let endpoint = super::Endpoint::bind(&dir).expect("bind");
         let sddl = endpoint.dacl_sddl().expect("dacl");

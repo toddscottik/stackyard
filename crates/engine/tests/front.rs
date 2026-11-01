@@ -7,20 +7,12 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use stackyard_core::{prepare_data_dir, roundtrip, Command as EngineCommand, Outcome};
 
 fn temp_dir(label: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "stackyard-{label}-{}-{}",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos()
-    ));
-    prepare_data_dir(&path).expect("temp dir")
+    prepare_data_dir(&stackyard_core::disposable_dir(label)).expect("temp dir")
 }
 
 struct Engine {

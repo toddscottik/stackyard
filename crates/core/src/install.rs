@@ -400,15 +400,7 @@ mod tests {
     use std::io::{Cursor, Write};
 
     fn temp_dir() -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "stackyard-install-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
-        prepare_data_dir(&path).expect("temp")
+        prepare_data_dir(&crate::paths::disposable_dir("install")).expect("temp")
     }
 
     fn zip_with(name: &str, bytes: &[u8]) -> Vec<u8> {
