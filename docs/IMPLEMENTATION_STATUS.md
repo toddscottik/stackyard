@@ -22,7 +22,7 @@ Updated: 31 October 2026.
 | 2: packages | Partial. Windows Node, Python, uv, and pnpm can be installed or referenced as of 1 November 2026. macOS packages are not in the catalog | Run the same install and selection flow on the M1 Pro after the Mac catalog pins are payload-checked |
 | 3: project runner | Partial. Linux x86_64 process and dependency checks passed on 1 November 2026. Windows 10 and macOS 14.5 launches are pending | Run the same project and dependency flows on Windows 10 x64 and the M1 Pro |
 | 4: desktop workflows | Partial. Desktop screens and tray policy are implemented as of 1 November 2026. A live window was not opened on Windows 10 or macOS 14.5 | Open the desktop on those machines and run one project through import, install, start, logs, restart, and stop |
-| 5: Apache/HTTPS | Not started | Shared virtual hosts, proxying, trust setup |
+| 5: Apache/HTTPS | Partial. Linux x86_64 shared Apache, proxy, static rewrite, and generated HTTPS passed on 1 November 2026. Windows catalog pin is the Stage 0 zip and was not launched again. macOS Apache remains blocked | Launch the Windows catalog Apache on Windows 10. Keep macOS blocked until a relocatable arm64 archive exists. System trust and ports 80/443 stay pending |
 | 6: databases | Not started | MySQL then PostgreSQL providers, SQLite and backup/restore |
 | 7: updates/recovery | Not started | Side-by-side updates and interrupted-operation recovery |
 | 8: personal release | Not started | Real-project acceptance on Windows and Mac |
@@ -95,3 +95,19 @@ Commands and outcomes on this machine:
 Details: `docs/evidence/S3-PROJECTS.md`.
 
 Next task: repeat the Stage 3 project and dependency smoke on Windows 10 x64 and macOS 14.5 arm64. Mac package catalog pins stay blocked on a payload check.
+
+## Stage 5 worker handoff
+
+1 November 2026. Slice: S5-APACHE. Executed on Linux x86_64 (`uname` 6.12.94+, rustc 1.99.1, Apache 2.4.58 at `/usr/sbin/apache2`). This is not the Windows 10 or macOS 14.5 acceptance machine.
+
+One generated Apache config serves every published `[site]`. `httpd -t` must pass before the live file is replaced. High ports only. A busy port is reported with other high ports and the occupant is left running. Certificates are generated in the data directory. Trust install and removal touch only `stackyard-ca.pem` in a directory the caller names. `hosts-write` rewrites only lines marked `# stackyard`. The Windows catalog now lists the Apache Lounge 2.4.69 zip from Stage 0. It was not downloaded here. macOS Apache stays out of the catalog.
+
+Commands and outcomes on this machine:
+
+- `cargo test --workspace --exclude stackyard-desktop` passed, including two static hosts, an `.htaccess` rewrite, proxy POST, redirect rewriting, a WebSocket upgrade, HTTPS checked with the generated CA, a refused candidate config, trust install/removal, and an occupied port.
+- `cargo test -p stackyard-desktop --lib` passed. `npx tsc --noEmit` in `apps/desktop` passed.
+- Chrome on the Vite page showed the Apache explanation and an Apache choice for Use existing. Publish needs the desktop engine, which that browser does not have.
+
+Details: `docs/evidence/S5-APACHE.md` and `docs/decisions/0003-apache-sites.md`.
+
+Next task: run the Windows catalog Apache on Windows 10 x64. Leave macOS Apache blocked until a relocatable arm64 build exists. Do not treat directory trust or this Linux `apache2` as the Windows or macOS trust and package checks.

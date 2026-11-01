@@ -11,3 +11,7 @@ ready_path = "/"
 ready_timeout_secs = 20
 port = 0
 restart = "never"
+
+[site]
+service = "web"
+host = "flask-app.localhost"

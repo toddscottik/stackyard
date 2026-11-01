@@ -5,8 +5,8 @@ use stackyard_core::{default_data_dir, ensure_engine, roundtrip, Command, Outcom
 use tauri::{AppHandle, Manager};
 
 use crate::open::{
-    accept_editor, canonical_project_root, folder_program, loopback_url, quit_stops_projects,
-    shell_program, spawn_detached,
+    accept_editor, accept_site_url, canonical_project_root, folder_program, loopback_url,
+    quit_stops_projects, shell_program, spawn_detached,
 };
 
 async fn engine_dir() -> Result<PathBuf, String> {
@@ -448,6 +448,97 @@ pub async fn open_project(
         other => Err(format!(
             "open action {other:?} is not folder, url, editor, or shell"
         )),
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteLink {
+    project_id: String,
+    host: String,
+    mode: String,
+    upstream: String,
+    http_url: String,
+    https_url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrontView {
+    state: String,
+    pid: Option<u32>,
+    http_port: u16,
+    https_port: u16,
+    restart_impact: String,
+    ca_path: String,
+    resolves_localhost: bool,
+    sites: Vec<SiteLink>,
+}
+
+fn front_view(outcome: Outcome) -> Result<FrontView, String> {
+    match outcome {
+        Outcome::Front {
+            state,
+            pid,
+            http_port,
+            https_port,
+            restart_impact,
+            ca_path,
+            resolves_localhost,
+            sites,
+        } => Ok(FrontView {
+            state,
+            pid,
+            http_port,
+            https_port,
+            restart_impact,
+            ca_path,
+            resolves_localhost,
+            sites: sites
+                .into_iter()
+                .map(|site| SiteLink {
+                    project_id: site.project_id,
+                    host: site.host,
+                    mode: site.mode,
+                    upstream: site.upstream,
+                    http_url: site.http_url,
+                    https_url: site.https_url,
+                })
+                .collect(),
+        }),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
+pub async fn front_status() -> Result<FrontView, String> {
+    front_view(call(Command::FrontStatus).await?)
+}
+
+#[tauri::command]
+pub async fn publish_project(project_id: String) -> Result<FrontView, String> {
+    front_view(call(Command::PublishProject { project_id }).await?)
+}
+
+#[tauri::command]
+pub async fn unpublish_project(project_id: String) -> Result<FrontView, String> {
+    front_view(call(Command::UnpublishProject { project_id }).await?)
+}
+
+#[tauri::command]
+pub async fn restart_front() -> Result<FrontView, String> {
+    front_view(call(Command::RestartFront).await?)
+}
+
+#[tauri::command]
+pub async fn open_site(url: String) -> Result<(), String> {
+    let url = accept_site_url(&url)?;
+    if cfg!(windows) {
+        spawn_detached("explorer", &[url], None)
+    } else if cfg!(target_os = "macos") {
+        spawn_detached("open", &[url], None)
+    } else {
+        spawn_detached("xdg-open", &[url], None)
     }
 }
 

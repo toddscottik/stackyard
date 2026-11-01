@@ -175,7 +175,7 @@ pub fn download_and_install(
 }
 
 pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<PackageRecord> {
-    if !matches!(role, "node" | "python" | "pnpm" | "uv") {
+    if !matches!(role, "node" | "python" | "pnpm" | "uv" | "apache") {
         return Err(Error::InvalidMessage(format!(
             "existing selection for {role} is not supported"
         )));
@@ -193,10 +193,16 @@ pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<
             "import sys; print(sys.version.split()[0])".to_string(),
         ],
         "uv" => vec!["--version".to_string()],
+        "apache" => vec!["-v".to_string()],
         _ => vec!["--version".to_string()],
     };
     let probed = command_line(executable, &args)?;
-    let version = if role == "uv" {
+    let version = if role == "apache" {
+        crate::apache::parse_apache_version(&probed).ok_or_else(|| Error::ProbeFailed {
+            path: executable.to_path_buf(),
+            detail: format!("could not read an Apache version from {probed:?}"),
+        })?
+    } else if role == "uv" {
         probed
             .split_whitespace()
             .nth(1)
@@ -215,7 +221,9 @@ pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<
     if store.get_package(&id)?.is_some() {
         return Err(Error::AlreadyInstalled { id });
     }
-    let kind = if role == "node" || role == "python" {
+    let kind = if role == "apache" {
+        "server"
+    } else if role == "node" || role == "python" {
         "runtime"
     } else {
         "tool"
@@ -392,15 +400,7 @@ mod tests {
     use std::io::{Cursor, Write};
 
     fn temp_dir() -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "stackyard-install-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
-        prepare_data_dir(&path).expect("temp")
+        prepare_data_dir(&crate::paths::disposable_dir("install")).expect("temp")
     }
 
     fn zip_with(name: &str, bytes: &[u8]) -> Vec<u8> {

@@ -12,3 +12,7 @@ ready_timeout_secs = 20
 port = 0
 restart = "on-failure"
 restart_max = 2
+
+[site]
+service = "web"
+host = "fastapi-app.localhost"

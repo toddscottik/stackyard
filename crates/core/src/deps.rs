@@ -522,14 +522,7 @@ mod tests {
     use std::fs;
 
     fn write_project(body: &str, extra: &[(&str, &str)]) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "stackyard-deps-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let root = crate::paths::disposable_dir("deps");
         fs::create_dir_all(root.join("packages/web")).expect("dirs");
         fs::write(root.join("stackyard.toml"), body).expect("toml");
         for (name, text) in extra {

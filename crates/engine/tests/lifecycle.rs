@@ -1,18 +1,10 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use stackyard_core::{prepare_data_dir, roundtrip, Error};
 use stackyard_core::{Command, Outcome};
 
 fn temp_dir() -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "stackyard-engine-{}-{}",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos()
-    ));
-    prepare_data_dir(&path).expect("temp dir")
+    prepare_data_dir(&stackyard_core::disposable_dir("engine")).expect("temp dir")
 }
 
 async fn wait_status(dir: &std::path::Path) -> Outcome {
@@ -44,7 +36,7 @@ async fn second_server_refuses_and_settings_survive_restart() {
     else {
         panic!("expected status, got {status:?}");
     };
-    assert_eq!(schema_version, 3);
+    assert_eq!(schema_version, 4);
     assert!(pid > 0);
 
     let dir_for_second = dir.clone();

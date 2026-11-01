@@ -9,6 +9,46 @@ pub fn loopback_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/")
 }
 
+pub fn accept_site_url(url: &str) -> Result<String, String> {
+    let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
+        ("https", rest)
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        ("http", rest)
+    } else {
+        return Err("a site URL must start with http:// or https://".to_string());
+    };
+    if rest.contains('@') || rest.contains('?') || rest.contains('#') || rest.contains('\\') {
+        return Err("a site URL is only a host and a port".to_string());
+    }
+    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+    if !path.is_empty() {
+        return Err("a site URL does not include a path".to_string());
+    }
+    let Some((host, port_text)) = authority.rsplit_once(':') else {
+        return Err("a site URL includes its port".to_string());
+    };
+    let port: u16 = port_text
+        .parse()
+        .map_err(|_| "a site URL port is invalid".to_string())?;
+    if port < 1024 {
+        return Err("a site URL uses a high port".to_string());
+    }
+    let Some((label, suffix)) = host.rsplit_once('.') else {
+        return Err("a site host ends in .localhost or .test".to_string());
+    };
+    let label_ok = !label.is_empty()
+        && !label.contains('.')
+        && !label.starts_with('-')
+        && !label.ends_with('-')
+        && label
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !label_ok || (suffix != "localhost" && suffix != "test") {
+        return Err("a site host is one label under .localhost or .test".to_string());
+    }
+    Ok(format!("{scheme}://{host}:{port}/"))
+}
+
 pub fn accept_editor(raw: &str) -> Result<String, String> {
     let value = raw.trim();
     let value = if value.is_empty() { "code" } else { value };
@@ -103,6 +143,17 @@ mod tests {
     #[test]
     fn loopback_url_stays_on_localhost() {
         assert_eq!(loopback_url(4312), "http://127.0.0.1:4312/");
+    }
+
+    #[test]
+    fn site_url_is_a_local_host_and_a_high_port() {
+        assert_eq!(
+            accept_site_url("https://notes.localhost:18443").expect("url"),
+            "https://notes.localhost:18443/"
+        );
+        assert!(accept_site_url("https://notes.localhost:443").is_err());
+        assert!(accept_site_url("https://example.com:18443/").is_err());
+        assert!(accept_site_url("https://user@notes.localhost:18443/").is_err());
     }
 
     #[test]

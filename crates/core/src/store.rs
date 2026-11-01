@@ -6,7 +6,7 @@ use rusqlite::{params, Connection};
 use crate::error::{Error, Result};
 use crate::protocol::{validate_setting_key, validate_setting_value};
 
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PackageRecord {
@@ -20,6 +20,15 @@ pub struct PackageRecord {
     pub launch: String,
     pub digest: Option<String>,
     pub removable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicationRecord {
+    pub project_id: String,
+    pub host: String,
+    pub mode: String,
+    pub service_id: String,
+    pub static_dir: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -534,7 +543,86 @@ impl Store {
             tx.commit()
                 .map_err(|source| Error::database("commit migration 3", source))?;
         }
+        if self.schema_version()? < 4 {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .map_err(|source| Error::database("begin migration 4", source))?;
+            tx.execute_batch(
+                "CREATE TABLE publications (
+                    project_id TEXT PRIMARY KEY,
+                    host TEXT NOT NULL UNIQUE,
+                    mode TEXT NOT NULL,
+                    service_id TEXT NOT NULL,
+                    static_dir TEXT NOT NULL,
+                    FOREIGN KEY (project_id) REFERENCES projects(id)
+                );",
+            )
+            .map_err(|source| Error::database("apply migration 4", source))?;
+            tx.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (4, ?1)",
+                params![now_unix()],
+            )
+            .map_err(|source| Error::database("record migration 4", source))?;
+            tx.commit()
+                .map_err(|source| Error::database("commit migration 4", source))?;
+        }
         Ok(())
+    }
+
+    pub fn upsert_publication(&self, record: &PublicationRecord) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO publications (project_id, host, mode, service_id, static_dir)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(project_id) DO UPDATE SET
+                    host = excluded.host,
+                    mode = excluded.mode,
+                    service_id = excluded.service_id,
+                    static_dir = excluded.static_dir",
+                params![
+                    record.project_id,
+                    record.host,
+                    record.mode,
+                    record.service_id,
+                    record.static_dir
+                ],
+            )
+            .map_err(|source| Error::database("write publication", source))?;
+        Ok(())
+    }
+
+    pub fn delete_publication(&self, project_id: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "DELETE FROM publications WHERE project_id = ?1",
+                params![project_id],
+            )
+            .map_err(|source| Error::database("delete publication", source))?;
+        Ok(())
+    }
+
+    pub fn list_publications(&self) -> Result<Vec<PublicationRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT project_id, host, mode, service_id, static_dir
+                 FROM publications ORDER BY host",
+            )
+            .map_err(|source| Error::database("prepare publications", source))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(PublicationRecord {
+                    project_id: row.get(0)?,
+                    host: row.get(1)?,
+                    mode: row.get(2)?,
+                    service_id: row.get(3)?,
+                    static_dir: row.get(4)?,
+                })
+            })
+            .map_err(|source| Error::database("query publications", source))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|source| Error::database("read publication", source))
     }
 }
 
@@ -590,15 +678,7 @@ mod tests {
     use crate::paths::prepare_data_dir;
 
     fn temp_dir() -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "stackyard-store-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
-        prepare_data_dir(&path).expect("temp dir")
+        prepare_data_dir(&crate::paths::disposable_dir("store")).expect("temp dir")
     }
 
     #[test]
@@ -606,7 +686,7 @@ mod tests {
         let dir = temp_dir();
         {
             let store = Store::open(&dir).expect("open");
-            assert_eq!(store.schema_version().expect("version"), 3);
+            assert_eq!(store.schema_version().expect("version"), 4);
             store.put("display_name", "Ada").expect("put");
             assert_eq!(
                 store.last_event().expect("event").as_deref(),
@@ -614,7 +694,7 @@ mod tests {
             );
         }
         let store = Store::open(&dir).expect("reopen");
-        assert_eq!(store.schema_version().expect("version"), 3);
+        assert_eq!(store.schema_version().expect("version"), 4);
         assert_eq!(
             store.get("display_name").expect("get").as_deref(),
             Some("Ada")

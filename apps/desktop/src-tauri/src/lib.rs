@@ -30,7 +30,12 @@ pub fn run() {
             commands::start_dependency,
             commands::task_status,
             commands::cancel_task,
-            commands::open_project
+            commands::open_project,
+            commands::front_status,
+            commands::publish_project,
+            commands::unpublish_project,
+            commands::restart_front,
+            commands::open_site
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Show Stackyard", true, None::<&str>)?;

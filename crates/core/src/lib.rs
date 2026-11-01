@@ -3,6 +3,7 @@
 //! Desktop and CLI both talk to one engine through [`client`]. Neither crate
 //! starts runtimes or servers on its own.
 
+mod apache;
 mod archive;
 mod catalog;
 mod client;
@@ -17,6 +18,13 @@ mod protocol;
 mod store;
 mod transport;
 
+pub use apache::{
+    accept_listen_port, create_ca, default_host, fingerprint, free_high_ports, issue_leaf,
+    label_resolves_to_loopback, merge_hosts, module_directory, os_trust_command,
+    parse_apache_version, port_is_free, quote, render_httpd, require_free, site_root, upstream_for,
+    validate_host, HttpdSpec, ListenPorts, Material, Upstream, VirtualSite, DEFAULT_HTTPS_PORT,
+    DEFAULT_HTTP_PORT, HOSTS_MARK, RESTART_IMPACT, TRUST_FILE,
+};
 pub use catalog::{catalog_for_host, current_target, find_package, CatalogPackage};
 pub use client::{ensure_engine, roundtrip};
 pub use deps::{
@@ -31,8 +39,11 @@ pub use install::{
 pub use logs::{append_log, log_tail, read_log, service_log_path, LogChunk};
 pub use manifest::{
     load_manifest, start_order, ManagerKind, Manifest, RestartPolicy, RuntimeRole, ServiceSpec,
+    SiteKind, SiteSpec,
 };
-pub use paths::{default_data_dir, endpoint_id, pipe_path, prepare_data_dir, socket_path};
+pub use paths::{
+    default_data_dir, disposable_dir, endpoint_id, pipe_path, prepare_data_dir, socket_path,
+};
 pub use project::{
     active_state, contained_dir, ensure_venv, environment_dir, import_project, list_project_views,
     load_project_manifest, prepend_path, project_view, require_startable, resolve_runtime,
@@ -40,7 +51,7 @@ pub use project::{
 };
 pub use protocol::{
     check_api_version, next_request_id, Command, DiscoveredRuntime, Outcome, Request, Response,
-    API_VERSION,
+    SiteView, API_VERSION,
 };
-pub use store::{PackageRecord, ProcessRecord, ProjectRecord, Store};
+pub use store::{PackageRecord, ProcessRecord, ProjectRecord, PublicationRecord, Store};
 pub use transport::{recv, send};

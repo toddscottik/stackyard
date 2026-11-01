@@ -264,6 +264,89 @@ async fn run() -> stackyard_core::Result<()> {
             .await?;
             wait_task(&dir, &started).await
         }
+        [cmd] if cmd == "sites" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(&roundtrip(&dir, Command::FrontStatus).await?);
+            Ok(())
+        }
+        [cmd, id] if cmd == "publish" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(
+                &roundtrip(
+                    &dir,
+                    Command::PublishProject {
+                        project_id: id.to_string(),
+                    },
+                )
+                .await?,
+            );
+            Ok(())
+        }
+        [cmd, id] if cmd == "unpublish" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(
+                &roundtrip(
+                    &dir,
+                    Command::UnpublishProject {
+                        project_id: id.to_string(),
+                    },
+                )
+                .await?,
+            );
+            Ok(())
+        }
+        [cmd, sub] if cmd == "apache" && sub == "restart" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(&roundtrip(&dir, Command::RestartFront).await?);
+            Ok(())
+        }
+        [cmd, http, https] if cmd == "ports" => {
+            let dir = ensure_engine(&data_dir).await?;
+            let http_port = http.parse().map_err(|_| {
+                stackyard_core::Error::InvalidMessage(format!("{http} is not a port"))
+            })?;
+            let https_port = https.parse().map_err(|_| {
+                stackyard_core::Error::InvalidMessage(format!("{https} is not a port"))
+            })?;
+            print_outcome(
+                &roundtrip(
+                    &dir,
+                    Command::SetFrontPorts {
+                        http_port,
+                        https_port,
+                    },
+                )
+                .await?,
+            );
+            Ok(())
+        }
+        [cmd, sub, path] if cmd == "trust" && (sub == "install" || sub == "remove") => {
+            let dir = ensure_engine(&data_dir).await?;
+            let command = if sub == "install" {
+                Command::TrustInstall {
+                    directory: path.to_string(),
+                }
+            } else {
+                Command::TrustRemove {
+                    directory: path.to_string(),
+                }
+            };
+            print_outcome(&roundtrip(&dir, command).await?);
+            Ok(())
+        }
+        [cmd, path] if cmd == "hosts-write" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(
+                &roundtrip(
+                    &dir,
+                    Command::WriteHosts {
+                        path: path.to_string(),
+                    },
+                )
+                .await?,
+            );
+            Ok(())
+        }
         [cmd, rest @ ..] if cmd == "deps" => {
             let dir = ensure_engine(&data_dir).await?;
             deps_command(&dir, rest).await
@@ -503,7 +586,15 @@ fn print_help() {
          stackyard deps remove ID PACKAGE [--scope DIR]\n  \
          stackyard deps update ID PACKAGE [--scope DIR]\n  \
          stackyard deps list ID [--scope DIR]\n  \
-         stackyard deps cancel TASK\n\n\
+         stackyard deps cancel TASK\n  \
+         stackyard sites\n  \
+         stackyard publish ID\n  \
+         stackyard unpublish ID\n  \
+         stackyard apache restart\n  \
+         stackyard ports HTTP HTTPS\n  \
+         stackyard trust install DIRECTORY\n  \
+         stackyard trust remove DIRECTORY\n  \
+         stackyard hosts-write PATH\n\n\
          --data-dir PATH   state directory (default: {})\n\n\
          status, get, put, stop, and package commands start the engine when it is not running.\n\
          serve runs it in the foreground. A second serve exits because the endpoint is already owned.\n\
@@ -604,6 +695,39 @@ fn print_outcome(outcome: &Outcome) {
             println!("label: {label}");
             println!("state: {state}");
             println!("{message}");
+        }
+        Outcome::Front {
+            state,
+            pid,
+            http_port,
+            https_port,
+            restart_impact,
+            ca_path,
+            resolves_localhost,
+            sites,
+        } => {
+            println!(
+                "apache: {state} pid={}",
+                pid.map(|pid| pid.to_string())
+                    .unwrap_or_else(|| "-".to_string())
+            );
+            println!("http_port: {http_port}");
+            println!("https_port: {https_port}");
+            println!("ca: {ca_path}");
+            println!(
+                "localhost_resolves: {}",
+                if *resolves_localhost { "yes" } else { "no" }
+            );
+            println!("{restart_impact}");
+            if sites.is_empty() {
+                println!("sites: none");
+            }
+            for site in sites {
+                println!(
+                    "site: {} {} {} {} {}",
+                    site.project_id, site.host, site.mode, site.http_url, site.https_url
+                );
+            }
         }
     }
 }
