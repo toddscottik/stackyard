@@ -19,7 +19,7 @@ Updated: 31 October 2026.
 | --- | --- | --- |
 | 0: package feasibility | Partial. Windows runtime and server probes accepted 31 October 2026. Mac metadata is recorded and every Mac launch is pending or blocked | Run `scripts/verification/macos/packages.sh` on the M1 Pro. Resolve macOS Apache and MySQL archives before approving those providers |
 | 1: foundation | Partial. Windows skeleton runs as of 1 November 2026. Mac toolchain and desktop open are pending | Finish the Mac toolchain check and open the desktop there. Then Stage 2 package providers |
-| 2: packages | Not started | Existing selection plus managed Node/Python and compatible language tools |
+| 2: packages | Partial. Windows Node, Python, uv, and pnpm can be installed or referenced as of 1 November 2026. macOS packages are not in the catalog | Run the same install and selection flow on the M1 Pro after the Mac catalog pins are payload-checked |
 | 3: project runner | Not started | Process lifecycle, dependency operations, and four application fixtures |
 | 4: desktop workflows | Not started | Components/projects/logs with real backend actions |
 | 5: Apache/HTTPS | Not started | Shared virtual hosts, proxying, trust setup |
@@ -70,6 +70,12 @@ Commands and outcomes:
 - CLI smoke against `.artifacts/S1-BOOTSTRAP/cli-smoke`: two `status` calls reported pid 74132; after `stop` and a new `status`, pid 89508 and `last_event` was `setting_put display_name`.
 - `npm --prefix apps/desktop run dev` launched `localdev-desktop.exe` with window title `Local Dev`. `localdev status` then reported the same engine pid, 91424, and data directory `%LOCALAPPDATA%\localdev`.
 
-The temporary package name is `localdev`. Providers are not created yet. Tray hide and explicit Quit policy are still Stage 4. A second Windows account was not used to try the pipe. GitHub Actions has not been run. macOS 14.5 has not built or opened the desktop.
+The temporary package name is `localdev`. Tray hide and explicit Quit policy are still Stage 4. A second Windows account was not used to try the pipe. GitHub Actions has not been run. macOS 14.5 has not built or opened the desktop.
 
-Next task: on the M1 Pro, install Rust and confirm Xcode Command Line Tools, then run `cargo test --workspace` and `npm --prefix apps/desktop run dev`. After that, Stage 2 can select existing Node or Python and download the other.
+## Stage 2 coordinator handoff
+
+1 November 2026. Slice: S2-PACKAGES on Windows 10 Pro build 19045 x64.
+
+The runnable catalog is `catalog/packages.json`. Windows Node 24.22.2, CPython 3.12.16, uv 0.13.6, and pnpm 12.16.1 downloaded into `.artifacts/S2-PACKAGES`, matched by the installer digest check, and launched. Existing Python 3.12.3 was recorded and left at `C:\Python\Python312\python.exe`. Removing that reference was refused. Details: `docs/evidence/S2-PACKAGES.md`.
+
+Next task: payload-check the macOS Node, Python, uv, and pnpm pins on the M1 Pro and add them to the catalog only after that. Server packages stay later.

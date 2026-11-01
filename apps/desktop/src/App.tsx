@@ -9,10 +9,17 @@ type Status = {
   lastEvent: string | null;
 };
 
+type CatalogItem = { id: string; name: string; version: string; target: string };
+type Installed = { id: string; source: string; version: string; path: string; launch: string };
+
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [setting, setSetting] = useState("");
   const [error, setError] = useState("");
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [packages, setPackages] = useState<Installed[]>([]);
+  const [existingPath, setExistingPath] = useState("");
+  const [busy, setBusy] = useState("");
 
   async function refresh() {
     const next = await invoke<Status>("engine_status");
@@ -24,10 +31,21 @@ export function App() {
     setError("");
   }
 
+  async function loadPackages() {
+    const [nextCatalog, nextPackages] = await Promise.all([
+      invoke<CatalogItem[]>("list_catalog"),
+      invoke<Installed[]>("list_packages"),
+    ]);
+    setCatalog(nextCatalog);
+    setPackages(nextPackages);
+  }
+
   useEffect(() => {
-    refresh().catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : String(err));
-    });
+    refresh()
+      .then(() => loadPackages())
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err));
+      });
   }, []);
 
   async function save() {
@@ -83,6 +101,69 @@ export function App() {
           onChange={(event) => setSetting(event.target.value)}
         />
         <button type="submit">Save</button>
+      </form>
+      <h2>Packages</h2>
+      <ul>
+        {packages.map((item) => (
+          <li key={item.id}>
+            {item.id} · {item.source} · {item.version}
+            <div>{item.launch}</div>
+          </li>
+        ))}
+      </ul>
+      {packages.length === 0 ? <p>No packages recorded.</p> : null}
+      <ul>
+        {catalog.map((item) => {
+          const installed = packages.find((pkg) => pkg.id === item.id);
+          return (
+            <li key={item.id}>
+              {installed ? (
+                <span>
+                  Installed {item.name} {item.version}
+                  <div>{installed.launch}</div>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy !== ""}
+                  onClick={() => {
+                    setBusy(item.id);
+                    setError("");
+                    void invoke<string>("install_package", { catalogId: item.id })
+                      .then(() => loadPackages())
+                      .catch((err: unknown) => {
+                        setError(err instanceof Error ? err.message : String(err));
+                      })
+                      .finally(() => setBusy(""));
+                  }}
+                >
+                  {busy === item.id ? "Installing…" : `Install ${item.name} ${item.version}`}
+                </button>
+              )}
+              <span> {item.target}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          setError("");
+          void invoke<string>("use_existing", { role: "python", path: existingPath })
+            .then(() => loadPackages())
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : String(err));
+            });
+        }}
+      >
+        <label htmlFor="existing-python">Existing Python executable</label>
+        <input
+          id="existing-python"
+          value={existingPath}
+          onChange={(event) => setExistingPath(event.target.value)}
+          placeholder="C:\\Python\\Python312\\python.exe"
+        />
+        <button type="submit">Use existing Python</button>
       </form>
     </main>
   );

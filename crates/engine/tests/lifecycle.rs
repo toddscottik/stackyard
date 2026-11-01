@@ -43,7 +43,7 @@ async fn second_server_refuses_and_settings_survive_restart() {
     else {
         panic!("expected status, got {status:?}");
     };
-    assert_eq!(schema_version, 1);
+    assert_eq!(schema_version, 2);
     assert!(pid > 0);
 
     let dir_for_second = dir.clone();

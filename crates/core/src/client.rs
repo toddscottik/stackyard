@@ -59,7 +59,7 @@ pub async fn roundtrip(data_dir: &Path, cmd: EngineCommand) -> Result<Outcome> {
         });
     }
     if let Some(message) = response.error {
-        return Err(Error::InvalidMessage(message));
+        return Err(Error::OperationFailed(message));
     }
     response
         .result

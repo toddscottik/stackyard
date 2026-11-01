@@ -21,6 +21,9 @@ cargo test --workspace
 cargo run -p localdev-cli -- status
 cargo run -p localdev-cli -- serve
 cargo run -p localdev-cli -- stop
+cargo run -p localdev-cli -- catalog
+cargo run -p localdev-cli -- install node-24.22.2-windows-x64
+cargo run -p localdev-cli -- use-existing python "C:\Python\Python312\python.exe"
 npm --prefix apps/desktop install
 npm --prefix apps/desktop run dev
 ```

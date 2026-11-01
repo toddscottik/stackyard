@@ -17,9 +17,37 @@ pub struct Request {
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Command {
     Status,
-    GetSetting { key: String },
-    PutSetting { key: String, value: String },
+    GetSetting {
+        key: String,
+    },
+    PutSetting {
+        key: String,
+        value: String,
+    },
     Stop,
+    ListCatalog,
+    ListPackages,
+    Discover,
+    StartInstall {
+        catalog_id: String,
+    },
+    InstallStatus {
+        operation_id: String,
+    },
+    CancelInstall {
+        operation_id: String,
+    },
+    UseExisting {
+        role: String,
+        path: String,
+    },
+    SelectPackage {
+        project_id: String,
+        package_id: String,
+    },
+    RemovePackage {
+        package_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +75,28 @@ pub enum Outcome {
         value: Option<String>,
     },
     Stopped,
+    Catalog {
+        packages: Vec<crate::catalog::CatalogPackage>,
+    },
+    Packages {
+        packages: Vec<crate::store::PackageRecord>,
+    },
+    Discovered {
+        items: Vec<DiscoveredRuntime>,
+    },
+    Operation {
+        id: String,
+        catalog_id: String,
+        state: String,
+        bytes: u64,
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscoveredRuntime {
+    pub role: String,
+    pub path: String,
 }
 
 pub fn next_request_id() -> String {

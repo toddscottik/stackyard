@@ -15,6 +15,8 @@ pub enum Error {
     },
     #[error("engine reply was not valid: {0}")]
     InvalidMessage(String),
+    #[error("{0}")]
+    OperationFailed(String),
     #[error("database schema version {found} is newer than this build ({supported})")]
     SchemaTooNew { found: u32, supported: u32 },
     #[error("engine is already running for {}", data_dir.display())]
@@ -23,6 +25,32 @@ pub enum Error {
     Timeout { data_dir: PathBuf },
     #[error("engine binary was not found next to this program or in LOCALDEV_ENGINE")]
     EngineBinaryMissing,
+    #[error("catalog package {id} was not found")]
+    PackageNotFound { id: String },
+    #[error("package {id} targets {package}, this host is {host}")]
+    IncompatibleTarget {
+        id: String,
+        package: String,
+        host: String,
+    },
+    #[error("package {id} is already installed")]
+    AlreadyInstalled { id: String },
+    #[error("package {id} is already being installed")]
+    InstallInProgress { id: String },
+    #[error("install of {id} was cancelled")]
+    Cancelled { id: String },
+    #[error("digest mismatch for {id}: expected {expected}, got {actual}")]
+    DigestMismatch {
+        id: String,
+        expected: String,
+        actual: String,
+    },
+    #[error("archive entry {entry:?} is not a safe relative path")]
+    UnsafeArchivePath { entry: String },
+    #[error("package {id} cannot be removed: {reason}")]
+    NotRemovable { id: String, reason: String },
+    #[error("could not read version from {}: {detail}", path.display())]
+    ProbeFailed { path: PathBuf, detail: String },
     #[error("{context}: {source}")]
     Io {
         context: &'static str,

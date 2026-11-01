@@ -16,3 +16,4 @@ tauri-build = { version = "2.7.4", features = [] }
 localdev-core = { path = "../../../crates/core" }
 serde.workspace = true
 tauri = { version = "2.12.5", features = [] }
+tokio.workspace = true
