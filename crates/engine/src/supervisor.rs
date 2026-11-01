@@ -259,7 +259,7 @@ impl Supervisor {
             .insert(key.clone(), Arc::clone(&stop));
         let mut restarts_left = service.restart_max;
         loop {
-            if self.halted(cancel) || stop.load(Ordering::Relaxed) {
+            if self.halted(cancel) || stop.load(Ordering::Acquire) {
                 self.mark_state(
                     project,
                     service,
@@ -312,7 +312,7 @@ impl Supervisor {
                         None,
                         "",
                     )?;
-                    if self.halted(cancel) || stop.load(Ordering::Relaxed) {
+                    if self.halted(cancel) || stop.load(Ordering::Acquire) {
                         group.request_stop();
                         let _ = group.wait_timeout(Duration::from_secs(2));
                         self.forget(&key);
@@ -366,23 +366,15 @@ impl Supervisor {
                     let can_restart = service.restart == RestartPolicy::OnFailure
                         && restarts_left > 0
                         && !self.halted(cancel)
-                        && !stop.load(Ordering::Relaxed);
+                        && !stop.load(Ordering::Acquire);
                     if can_restart {
                         restarts_left -= 1;
                         thread::sleep(Duration::from_millis(200));
                         continue;
                     }
-                    self.mark_state(
-                        project,
-                        service,
-                        "failed",
-                        None,
-                        None,
-                        None,
-                        Some(i64::from(port)),
-                        None,
-                        &detail,
-                    )?;
+                    // Leave this service `starting` until the caller has stopped
+                    // every service that already came up. Publishing `failed`
+                    // first lets a status poll observe a running sibling.
                     return Err(Error::ServiceFailed {
                         project: project.id.clone(),
                         service: service.id.clone(),
@@ -412,7 +404,7 @@ impl Supervisor {
                 let status = group.child.wait();
                 group.finish_io();
                 supervisor.forget(&key);
-                if stop.load(Ordering::Relaxed) || supervisor.shutdown.load(Ordering::Relaxed) {
+                if stop.load(Ordering::Acquire) || supervisor.shutdown.load(Ordering::Relaxed) {
                     let _ = supervisor.mark_state(
                         &project,
                         &service,
@@ -432,12 +424,12 @@ impl Supervisor {
                 };
                 if service.restart == RestartPolicy::OnFailure
                     && restarts_left > 0
-                    && !stop.load(Ordering::Relaxed)
+                    && !stop.load(Ordering::Acquire)
                     && !supervisor.shutdown.load(Ordering::Relaxed)
                 {
                     restarts_left -= 1;
                     thread::sleep(Duration::from_millis(200));
-                    if stop.load(Ordering::Relaxed) || supervisor.shutdown.load(Ordering::Relaxed) {
+                    if stop.load(Ordering::Acquire) || supervisor.shutdown.load(Ordering::Relaxed) {
                         let _ = supervisor.mark_state(
                             &project,
                             &service,
@@ -527,7 +519,7 @@ impl Supervisor {
         for id in started.iter().rev() {
             let key = live_key(&project.id, id);
             if let Some(flag) = self.stops.lock().expect("stops").get(&key) {
-                flag.store(true, Ordering::Relaxed);
+                flag.store(true, Ordering::Release);
             }
             if let Some(row) = store
                 .list_processes(&project.id)?
@@ -562,7 +554,7 @@ impl Supervisor {
         let identity = process.identity.clone().unwrap_or_default();
         let key = live_key(&process.project_id, &process.service_id);
         if let Some(flag) = self.stops.lock().expect("stops").get(&key) {
-            flag.store(true, Ordering::Relaxed);
+            flag.store(true, Ordering::Release);
         }
         #[cfg(windows)]
         if let Some(live) = self.live.lock().expect("live").get(&key) {
@@ -578,7 +570,7 @@ impl Supervisor {
         let prefix = format!("{project_id}\0");
         for (key, flag) in self.stops.lock().expect("stops").iter() {
             if key.starts_with(&prefix) {
-                flag.store(true, Ordering::Relaxed);
+                flag.store(true, Ordering::Release);
             }
         }
     }
@@ -716,7 +708,7 @@ fn wait_ready(
     loop {
         if cancel.load(Ordering::Relaxed)
             || shutdown.load(Ordering::Relaxed)
-            || stop.load(Ordering::Relaxed)
+            || stop.load(Ordering::Acquire)
         {
             return Wait::Cancelled;
         }

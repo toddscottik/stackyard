@@ -44,7 +44,14 @@ async fn listen(data_dir: PathBuf) -> Result<()> {
     supervisor.reconcile()?;
     let mut endpoint = endpoint::Endpoint::bind(&data_dir)?;
     loop {
-        let mut client = endpoint.accept().await?;
+        let mut client = match endpoint.accept().await {
+            Ok(client) => client,
+            Err(err) => {
+                eprintln!("engine accept: {err}");
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                continue;
+            }
+        };
         let stop = match handle_client(
             &mut client,
             &store,

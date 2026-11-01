@@ -50,7 +50,17 @@ mod platform {
                 .connect()
                 .await
                 .map_err(|source| Error::io("accept engine client", source))?;
-            let next = create_server(&self.data_dir, false)?;
+            // A client can open the name in the moment after this instance is
+            // taken. Keep creating the next instance instead of ending the engine.
+            let next = match create_server_retry(&self.data_dir).await {
+                Ok(server) => server,
+                Err(err) => {
+                    if let Ok(fresh) = create_server(&self.data_dir, false) {
+                        self.server = fresh;
+                    }
+                    return Err(err);
+                }
+            };
             Ok(std::mem::replace(&mut self.server, next))
         }
 
@@ -81,6 +91,20 @@ mod platform {
         }
         .map_err(|source| map_bind_error(data_dir, source))?;
         Ok(server)
+    }
+
+    async fn create_server_retry(data_dir: &Path) -> Result<NamedPipeServer> {
+        let mut last = None;
+        for _ in 0..25 {
+            match create_server(data_dir, false) {
+                Ok(server) => return Ok(server),
+                Err(err) => {
+                    last = Some(err);
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            }
+        }
+        Err(last.expect("named pipe create was retried"))
     }
 
     fn map_bind_error(data_dir: &Path, source: std::io::Error) -> Error {
