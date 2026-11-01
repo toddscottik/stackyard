@@ -82,6 +82,7 @@ async fn listen(data_dir: PathBuf) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_client<S>(
     stream: &mut S,
     store: &Store,
@@ -125,6 +126,7 @@ where
     Ok(matches!(request.cmd, Command::Stop) && response.error.is_none())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn dispatch(
     request: &Request,
     store: &Store,

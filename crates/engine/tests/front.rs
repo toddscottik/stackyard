@@ -1,6 +1,8 @@
 //! Shared Apache on this machine. Windows and macOS runners do not compile this file's
 //! Linux-only test; those launches stay pending.
 
+#![cfg(target_os = "linux")]
+
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};

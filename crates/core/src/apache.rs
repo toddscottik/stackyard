@@ -208,7 +208,7 @@ pub fn parse_apache_version(text: &str) -> Option<String> {
         .split_whitespace()
         .find(|part| part.starts_with("Apache/"))?;
     let version = token.trim_start_matches("Apache/");
-    let version = version.trim_end_matches(|c: char| c == ')' || c == ',');
+    let version = version.trim_end_matches([')', ',']);
     if version.is_empty() {
         None
     } else {

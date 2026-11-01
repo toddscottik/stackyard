@@ -1,6 +1,8 @@
 //! Disposable MySQL, PostgreSQL, and SQLite on this machine.
 //! Windows and macOS runners do not compile this test.
 
+#![cfg(target_os = "linux")]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;

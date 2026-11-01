@@ -336,6 +336,7 @@ impl Databases {
         self.view(&format!("restored {database} into {into}"))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn attach(
         &self,
         project_id: &str,
