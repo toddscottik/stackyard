@@ -649,8 +649,9 @@ command = ["python", "serve"]
         ];
         for (name, manager) in expect {
             let root = fixtures.join(name);
-            let manifest = parse_manifest(&fs::read_to_string(root.join("stackyard.toml")).unwrap())
-                .unwrap_or_else(|err| panic!("{name}: {err}"));
+            let manifest =
+                parse_manifest(&fs::read_to_string(root.join("stackyard.toml")).unwrap())
+                    .unwrap_or_else(|err| panic!("{name}: {err}"));
             assert_eq!(
                 resolve_manager(&root, &manifest).unwrap_or_else(|err| panic!("{name}: {err}")),
                 manager,
@@ -663,7 +664,9 @@ command = ["python", "serve"]
     #[test]
     fn npm_plan_uses_the_lockfile_command() {
         let root = write_project(&node_manifest("npm"), &[("package-lock.json", "{}\n")]);
-        let node = root.join("bin").join(if cfg!(windows) { "node.exe" } else { "node" });
+        let node = root
+            .join("bin")
+            .join(if cfg!(windows) { "node.exe" } else { "node" });
         fs::create_dir_all(node.parent().unwrap()).unwrap();
         fs::write(&node, b"node").unwrap();
         let npm_name = if cfg!(windows) { "npm.cmd" } else { "npm" };

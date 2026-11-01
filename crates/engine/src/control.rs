@@ -345,7 +345,10 @@ fn version_args(program: &Path, args: &[String]) -> Vec<String> {
             return vec![script.clone(), "-v".to_string()];
         }
     }
-    if args.windows(2).any(|pair| pair[0] == "-m" && pair[1] == "pip") {
+    if args
+        .windows(2)
+        .any(|pair| pair[0] == "-m" && pair[1] == "pip")
+    {
         return vec!["-m".to_string(), "pip".to_string(), "--version".to_string()];
     }
     let name = program

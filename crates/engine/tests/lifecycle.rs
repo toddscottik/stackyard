@@ -18,11 +18,12 @@ fn temp_dir() -> std::path::PathBuf {
 async fn wait_status(dir: &std::path::Path) -> Outcome {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
-        if let Ok(outcome) = roundtrip(dir, Command::Status).await {
-            return outcome;
-        }
+        let err = match roundtrip(dir, Command::Status).await {
+            Ok(outcome) => return outcome,
+            Err(err) => err.to_string(),
+        };
         if tokio::time::Instant::now() > deadline {
-            panic!("engine did not accept a status request");
+            panic!("engine did not accept a status request: {err}");
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

@@ -3195,6 +3195,7 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "hex",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",

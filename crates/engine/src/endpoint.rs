@@ -210,6 +210,8 @@ mod platform {
 
 #[cfg(unix)]
 mod platform {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
     use stackyard_core::{socket_path, Error, Result};
@@ -223,6 +225,12 @@ mod platform {
 
     pub fn bind(data_dir: &Path) -> Result<Endpoint> {
         let socket = socket_path(data_dir);
+        if let Some(parent) = socket.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|source| Error::io("create engine socket directory", source))?;
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                .map_err(|source| Error::io("restrict engine socket directory", source))?;
+        }
         if socket.exists() {
             match std::os::unix::net::UnixStream::connect(&socket) {
                 Ok(_) => {
@@ -237,8 +245,7 @@ mod platform {
         }
         let listener = UnixListener::bind(&socket)
             .map_err(|source| Error::io("bind engine socket", source))?;
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))
+        std::fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))
             .map_err(|source| Error::io("restrict engine socket permissions", source))?;
         Ok(Endpoint { listener })
     }
@@ -284,8 +291,18 @@ mod tests {
             "authenticated users ace: {sddl}"
         );
         assert!(!sddl.contains("S-1-5-32-544"), "administrators ace: {sddl}");
+        assert!(!sddl.contains(";;;WD)"), "everyone alias: {sddl}");
         assert!(
-            sddl.contains("S-1-5-21-"),
+            !sddl.contains(";;;AU)"),
+            "authenticated users alias: {sddl}"
+        );
+        assert!(
+            !sddl.contains(";;;BA)"),
+            "administrators group alias: {sddl}"
+        );
+        // Windows prints the built-in Administrator account as LA instead of its S-1-5-21 SID.
+        assert!(
+            sddl.contains("S-1-5-21-") || sddl.contains(";;;LA)"),
             "current user ace missing: {sddl}"
         );
         let _ = std::fs::remove_dir_all(&dir);
