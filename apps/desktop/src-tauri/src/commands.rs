@@ -530,6 +530,154 @@ pub async fn restart_front() -> Result<FrontView, String> {
     front_view(call(Command::RestartFront).await?)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbInstanceView {
+    id: String,
+    engine: String,
+    port: i64,
+    data_dir: String,
+    state: String,
+    pid: Option<i64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbBindingView {
+    project_id: String,
+    connection_id: String,
+    instance_id: String,
+    engine: String,
+    host: String,
+    port: i64,
+    database_name: String,
+    user_name: String,
+    external: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SqliteView {
+    project_id: String,
+    path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabasesView {
+    instances: Vec<DbInstanceView>,
+    bindings: Vec<DbBindingView>,
+    sqlite: Vec<SqliteView>,
+    message: String,
+}
+
+fn databases_view(outcome: Outcome) -> Result<DatabasesView, String> {
+    match outcome {
+        Outcome::Databases { view } => Ok(DatabasesView {
+            instances: view
+                .instances
+                .into_iter()
+                .map(|row| DbInstanceView {
+                    id: row.id,
+                    engine: row.engine,
+                    port: row.port,
+                    data_dir: row.data_dir,
+                    state: row.state,
+                    pid: row.pid,
+                })
+                .collect(),
+            bindings: view
+                .bindings
+                .into_iter()
+                .map(|row| DbBindingView {
+                    project_id: row.project_id,
+                    connection_id: row.connection_id,
+                    instance_id: row.instance_id,
+                    engine: row.engine,
+                    host: row.host,
+                    port: row.port,
+                    database_name: row.database_name,
+                    user_name: row.user_name,
+                    external: row.external,
+                })
+                .collect(),
+            sqlite: view
+                .sqlite
+                .into_iter()
+                .map(|row| SqliteView {
+                    project_id: row.project_id,
+                    path: row.path,
+                })
+                .collect(),
+            message: view.message,
+        }),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
+pub async fn databases_status() -> Result<DatabasesView, String> {
+    databases_view(call(Command::DbList).await?)
+}
+
+#[tauri::command]
+pub async fn database_create(engine: String, port: u16) -> Result<DatabasesView, String> {
+    databases_view(call(Command::DbCreate { engine, port }).await?)
+}
+
+#[tauri::command]
+pub async fn database_start(instance_id: String) -> Result<DatabasesView, String> {
+    databases_view(call(Command::DbStart { instance_id }).await?)
+}
+
+#[tauri::command]
+pub async fn database_stop(instance_id: String) -> Result<DatabasesView, String> {
+    databases_view(call(Command::DbStop { instance_id }).await?)
+}
+
+#[tauri::command]
+pub async fn database_attach(
+    project_id: String,
+    engine: String,
+    host: String,
+    port: u16,
+    database: String,
+    user: String,
+    password: String,
+) -> Result<DatabasesView, String> {
+    databases_view(
+        call(Command::DbAttach {
+            project_id,
+            engine,
+            host,
+            port,
+            database,
+            user,
+            password,
+        })
+        .await?,
+    )
+}
+
+#[tauri::command]
+pub async fn database_detach(
+    project_id: String,
+    connection_id: String,
+) -> Result<DatabasesView, String> {
+    databases_view(
+        call(Command::DbDetach {
+            project_id,
+            connection_id,
+        })
+        .await?,
+    )
+}
+
+#[tauri::command]
+pub async fn sqlite_use(project_id: String, path: String) -> Result<DatabasesView, String> {
+    databases_view(call(Command::SqliteUse { project_id, path }).await?)
+}
+
 #[tauri::command]
 pub async fn open_site(url: String) -> Result<(), String> {
     let url = accept_site_url(&url)?;

@@ -1,6 +1,7 @@
 //! Per-user engine process. Desktop and CLI are clients of [`serve`].
 
 mod control;
+mod database;
 mod endpoint;
 mod front;
 mod group;
@@ -41,6 +42,7 @@ async fn listen(data_dir: PathBuf) -> Result<()> {
     let tasks = TaskBoard::new();
     let supervisor = supervisor::new(data_dir.clone());
     let front = Arc::new(front::Front::new(data_dir.clone()));
+    let databases = Arc::new(database::Databases::new(data_dir.clone()));
     supervisor.reconcile()?;
     let mut endpoint = endpoint::Endpoint::bind(&data_dir)?;
     loop {
@@ -60,6 +62,7 @@ async fn listen(data_dir: PathBuf) -> Result<()> {
             &tasks,
             &supervisor,
             &front,
+            &databases,
         )
         .await
         {
@@ -84,6 +87,7 @@ async fn handle_client<S>(
     tasks: &Arc<TaskBoard>,
     supervisor: &Arc<Supervisor>,
     front: &Arc<front::Front>,
+    databases: &Arc<database::Databases>,
 ) -> Result<bool>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -92,7 +96,11 @@ where
         let mut reader = BufReader::new(&mut *stream);
         recv(&mut reader).await?
     };
-    let response = match dispatch(&request, store, data_dir, jobs, tasks, supervisor, front).await {
+    let response = match dispatch(
+        &request, store, data_dir, jobs, tasks, supervisor, front, databases,
+    )
+    .await
+    {
         Ok(outcome) => Response {
             v: API_VERSION,
             id: request.id.clone(),
@@ -122,6 +130,7 @@ async fn dispatch(
     tasks: &Arc<TaskBoard>,
     supervisor: &Arc<Supervisor>,
     front: &front::Front,
+    databases: &database::Databases,
 ) -> Result<Outcome> {
     check_api_version(request.v)?;
     match &request.cmd {
@@ -144,6 +153,7 @@ async fn dispatch(
             })
         }
         Command::Stop => {
+            databases.shutdown();
             front.shutdown();
             supervisor.shutdown();
             Ok(Outcome::Stopped)
@@ -290,6 +300,60 @@ async fn dispatch(
         Command::TrustInstall { directory } => front.trust_install(Path::new(directory)),
         Command::TrustRemove { directory } => front.trust_remove(Path::new(directory)),
         Command::WriteHosts { path } => front.write_hosts(Path::new(path)),
+        Command::DbList => databases.list(),
+        Command::DbCreate { engine, port } => databases.create(engine, *port),
+        Command::DbStart { instance_id } => databases.start(instance_id),
+        Command::DbStop { instance_id } => databases.stop(instance_id),
+        Command::DbAdd {
+            instance_id,
+            project_id,
+            name,
+        } => databases.add(instance_id, project_id, name),
+        Command::DbBackup {
+            instance_id,
+            database,
+            destination,
+        } => databases.backup(instance_id, database, Path::new(destination)),
+        Command::DbRestore {
+            instance_id,
+            database,
+            source,
+            into,
+        } => databases.restore(instance_id, database, Path::new(source), into),
+        Command::DbAttach {
+            project_id,
+            engine,
+            host,
+            port,
+            database,
+            user,
+            password,
+        } => databases.attach(project_id, engine, host, *port, database, user, password),
+        Command::DbDetach {
+            project_id,
+            connection_id,
+        } => databases.detach(project_id, connection_id),
+        Command::DbProbe { project_id, name } => {
+            let note = databases.probe(project_id, name)?;
+            databases.list().map(|outcome| match outcome {
+                Outcome::Databases { mut view } => {
+                    view.message = note;
+                    Outcome::Databases { view }
+                }
+                other => other,
+            })
+        }
+        Command::DbMigrate => databases.migrate(),
+        Command::SqliteUse { project_id, path } => databases.sqlite_use(project_id, path),
+        Command::SqliteBackup {
+            project_id,
+            destination,
+        } => databases.sqlite_backup(project_id, Path::new(destination)),
+        Command::SqliteRestore {
+            project_id,
+            source,
+            destination,
+        } => databases.sqlite_restore(project_id, Path::new(source), Path::new(destination)),
     }
 }
 

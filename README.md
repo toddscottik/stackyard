@@ -16,6 +16,8 @@ Stage 0 recorded Windows package probes. macOS package execution is still pendin
 
 Stage 5 publishes projects through one Apache. A `[site]` table proxies a service or serves a directory. The listener stays on high loopback ports. Evidence is in `docs/evidence/S5-APACHE.md`.
 
+Stage 6 adds MySQL, PostgreSQL, and SQLite. A managed instance has its own data directory and is not stopped when a project stops. An external connection has no process. Evidence is in `docs/evidence/S6-DATABASES.md`.
+
 Development commands, from the repository root:
 
 ```text
@@ -33,6 +35,9 @@ cargo run -p stackyard-cli -- deps install PROJECT
 cargo run -p stackyard-cli -- publish PROJECT
 cargo run -p stackyard-cli -- sites
 cargo run -p stackyard-cli -- apache restart
+cargo run -p stackyard-cli -- db list
+cargo run -p stackyard-cli -- db create mysql
+cargo run -p stackyard-cli -- sqlite PROJECT data/app.sqlite
 npm --prefix apps/desktop install
 npm --prefix apps/desktop run dev
 ```

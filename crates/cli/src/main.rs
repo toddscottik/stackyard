@@ -334,6 +334,21 @@ async fn run() -> stackyard_core::Result<()> {
             print_outcome(&roundtrip(&dir, command).await?);
             Ok(())
         }
+        [cmd, rest @ ..] if cmd == "db" => db_command(&data_dir, rest).await,
+        [cmd, project, path] if cmd == "sqlite" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(
+                &roundtrip(
+                    &dir,
+                    Command::SqliteUse {
+                        project_id: project.to_string(),
+                        path: path.to_string(),
+                    },
+                )
+                .await?,
+            );
+            Ok(())
+        }
         [cmd, path] if cmd == "hosts-write" => {
             let dir = ensure_engine(&data_dir).await?;
             print_outcome(
@@ -555,6 +570,57 @@ async fn wait_task(dir: &std::path::Path, started: &Outcome) -> stackyard_core::
     }
 }
 
+async fn db_command(data_dir: &std::path::Path, args: &[String]) -> stackyard_core::Result<()> {
+    let dir = ensure_engine(data_dir).await?;
+    let command = match args {
+        [] => Command::DbList,
+        [op] if op == "list" => Command::DbList,
+        [op, engine] if op == "create" => Command::DbCreate {
+            engine: engine.to_string(),
+            port: 0,
+        },
+        [op, engine, port] if op == "create" => Command::DbCreate {
+            engine: engine.to_string(),
+            port: port.parse().map_err(|_| {
+                stackyard_core::Error::InvalidMessage(format!("{port} is not a port"))
+            })?,
+        },
+        [op, id] if op == "start" => Command::DbStart {
+            instance_id: id.to_string(),
+        },
+        [op, id] if op == "stop" => Command::DbStop {
+            instance_id: id.to_string(),
+        },
+        [op, id, project, name] if op == "add" => Command::DbAdd {
+            instance_id: id.to_string(),
+            project_id: project.to_string(),
+            name: name.to_string(),
+        },
+        [op, id, database, path] if op == "backup" => Command::DbBackup {
+            instance_id: id.to_string(),
+            database: database.to_string(),
+            destination: path.to_string(),
+        },
+        [op, id, database, source, into] if op == "restore" => Command::DbRestore {
+            instance_id: id.to_string(),
+            database: database.to_string(),
+            source: source.to_string(),
+            into: into.to_string(),
+        },
+        [op, project, id] if op == "detach" => Command::DbDetach {
+            project_id: project.to_string(),
+            connection_id: id.to_string(),
+        },
+        _ => {
+            return Err(stackyard_core::Error::InvalidMessage(
+                "usage: stackyard db list|create|start|stop|add|backup|restore|detach".to_string(),
+            ))
+        }
+    };
+    print_outcome(&roundtrip(&dir, command).await?);
+    Ok(())
+}
+
 fn print_help() {
     let default = default_data_dir();
     println!(
@@ -594,7 +660,16 @@ fn print_help() {
          stackyard ports HTTP HTTPS\n  \
          stackyard trust install DIRECTORY\n  \
          stackyard trust remove DIRECTORY\n  \
-         stackyard hosts-write PATH\n\n\
+         stackyard hosts-write PATH\n  \
+         stackyard db list\n  \
+         stackyard db create mysql|postgres [PORT]\n  \
+         stackyard db start ID\n  \
+         stackyard db stop ID\n  \
+         stackyard db add ID PROJECT NAME\n  \
+         stackyard db backup ID DATABASE PATH\n  \
+         stackyard db restore ID DATABASE SRC INTO\n  \
+         stackyard db detach PROJECT ID\n  \
+         stackyard sqlite PROJECT PATH\n\n\
          --data-dir PATH   state directory (default: {})\n\n\
          status, get, put, stop, and package commands start the engine when it is not running.\n\
          serve runs it in the foreground. A second serve exits because the endpoint is already owned.\n\
@@ -727,6 +802,30 @@ fn print_outcome(outcome: &Outcome) {
                     "site: {} {} {} {} {}",
                     site.project_id, site.host, site.mode, site.http_url, site.https_url
                 );
+            }
+        }
+        Outcome::Databases { view } => {
+            println!("{}", view.message);
+            if view.instances.is_empty() {
+                println!("instances: none");
+            }
+            for instance in &view.instances {
+                println!(
+                    "instance: {} {} 127.0.0.1:{} {}",
+                    instance.id, instance.engine, instance.port, instance.state
+                );
+            }
+            for binding in &view.bindings {
+                println!(
+                    "binding: {} {} {} external={}",
+                    binding.project_id,
+                    binding.connection_id,
+                    binding.database_name,
+                    binding.external
+                );
+            }
+            for file in &view.sqlite {
+                println!("sqlite: {} {}", file.project_id, file.path);
             }
         }
     }

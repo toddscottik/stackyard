@@ -69,6 +69,13 @@ pub enum Error {
     FrontPortBusy { port: u16, alternatives: String },
     #[error("project {id} is already {state}")]
     ProjectBusy { id: String, state: String },
+    #[error(
+        "data directory {} is not empty; initialization was refused and nothing was deleted",
+        path.display()
+    )]
+    DataDirNotEmpty { path: PathBuf },
+    #[error("database major-version migration is not supported")]
+    DatabaseMigrationUnsupported,
     #[error("{context}: {source}")]
     Io {
         context: &'static str,

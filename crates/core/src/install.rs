@@ -175,7 +175,10 @@ pub fn download_and_install(
 }
 
 pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<PackageRecord> {
-    if !matches!(role, "node" | "python" | "pnpm" | "uv" | "apache") {
+    if !matches!(
+        role,
+        "node" | "python" | "pnpm" | "uv" | "apache" | "mysql" | "postgres"
+    ) {
         return Err(Error::InvalidMessage(format!(
             "existing selection for {role} is not supported"
         )));
@@ -194,6 +197,8 @@ pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<
         ],
         "uv" => vec!["--version".to_string()],
         "apache" => vec!["-v".to_string()],
+        "mysql" => vec!["--no-defaults".to_string(), "--version".to_string()],
+        "postgres" => vec!["--version".to_string()],
         _ => vec!["--version".to_string()],
     };
     let probed = command_line(executable, &args)?;
@@ -221,7 +226,7 @@ pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<
     if store.get_package(&id)?.is_some() {
         return Err(Error::AlreadyInstalled { id });
     }
-    let kind = if role == "apache" {
+    let kind = if role == "apache" || role == "mysql" || role == "postgres" {
         "server"
     } else if role == "node" || role == "python" {
         "runtime"

@@ -6,7 +6,7 @@ use rusqlite::{params, Connection};
 use crate::error::{Error, Result};
 use crate::protocol::{validate_setting_key, validate_setting_value};
 
-const SCHEMA_VERSION: u32 = 4;
+const SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PackageRecord {
@@ -29,6 +29,38 @@ pub struct PublicationRecord {
     pub mode: String,
     pub service_id: String,
     pub static_dir: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DbInstanceRecord {
+    pub id: String,
+    pub engine: String,
+    pub port: i64,
+    pub data_dir: String,
+    pub secret_path: String,
+    pub state: String,
+    pub pid: Option<i64>,
+    pub identity: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DbBindingRecord {
+    pub project_id: String,
+    pub connection_id: String,
+    pub instance_id: String,
+    pub engine: String,
+    pub host: String,
+    pub port: i64,
+    pub database_name: String,
+    pub user_name: String,
+    pub secret_path: String,
+    pub external: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SqliteRecord {
+    pub project_id: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -567,7 +599,213 @@ impl Store {
             tx.commit()
                 .map_err(|source| Error::database("commit migration 4", source))?;
         }
+        if self.schema_version()? < 5 {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .map_err(|source| Error::database("begin migration 5", source))?;
+            tx.execute_batch(
+                "CREATE TABLE db_instances (
+                    id TEXT PRIMARY KEY,
+                    engine TEXT NOT NULL,
+                    port INTEGER NOT NULL,
+                    data_dir TEXT NOT NULL,
+                    secret_path TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    pid INTEGER,
+                    identity TEXT
+                );
+                CREATE TABLE db_bindings (
+                    project_id TEXT NOT NULL,
+                    connection_id TEXT NOT NULL,
+                    instance_id TEXT NOT NULL,
+                    engine TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    port INTEGER NOT NULL,
+                    database_name TEXT NOT NULL,
+                    user_name TEXT NOT NULL,
+                    secret_path TEXT NOT NULL,
+                    external INTEGER NOT NULL,
+                    PRIMARY KEY (project_id, connection_id)
+                );
+                CREATE TABLE project_sqlite (
+                    project_id TEXT PRIMARY KEY,
+                    path TEXT NOT NULL
+                );",
+            )
+            .map_err(|source| Error::database("apply migration 5", source))?;
+            tx.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (5, ?1)",
+                params![now_unix()],
+            )
+            .map_err(|source| Error::database("record migration 5", source))?;
+            tx.commit()
+                .map_err(|source| Error::database("commit migration 5", source))?;
+        }
         Ok(())
+    }
+
+    pub fn upsert_db_instance(&self, record: &DbInstanceRecord) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO db_instances (id, engine, port, data_dir, secret_path, state, pid, identity)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(id) DO UPDATE SET
+                    state = excluded.state,
+                    pid = excluded.pid,
+                    identity = excluded.identity,
+                    port = excluded.port",
+                params![
+                    record.id,
+                    record.engine,
+                    record.port,
+                    record.data_dir,
+                    record.secret_path,
+                    record.state,
+                    record.pid,
+                    record.identity
+                ],
+            )
+            .map_err(|source| Error::database("write database instance", source))?;
+        Ok(())
+    }
+
+    pub fn list_db_instances(&self) -> Result<Vec<DbInstanceRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, engine, port, data_dir, secret_path, state, pid, identity
+                 FROM db_instances ORDER BY id",
+            )
+            .map_err(|source| Error::database("prepare database instances", source))?;
+        let rows = stmt
+            .query_map([], map_instance)
+            .map_err(|source| Error::database("query database instances", source))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|source| Error::database("read database instance", source))
+    }
+
+    pub fn get_db_instance(&self, id: &str) -> Result<Option<DbInstanceRecord>> {
+        Ok(self
+            .list_db_instances()?
+            .into_iter()
+            .find(|row| row.id == id))
+    }
+
+    pub fn bindings_for_instance(&self, instance_id: &str) -> Result<Vec<DbBindingRecord>> {
+        Ok(self
+            .list_db_bindings()?
+            .into_iter()
+            .filter(|row| row.instance_id == instance_id)
+            .collect())
+    }
+
+    pub fn upsert_db_binding(&self, record: &DbBindingRecord) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO db_bindings (
+                    project_id, connection_id, instance_id, engine, host, port,
+                    database_name, user_name, secret_path, external
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 ON CONFLICT(project_id, connection_id) DO UPDATE SET
+                    instance_id = excluded.instance_id,
+                    engine = excluded.engine,
+                    host = excluded.host,
+                    port = excluded.port,
+                    database_name = excluded.database_name,
+                    user_name = excluded.user_name,
+                    secret_path = excluded.secret_path,
+                    external = excluded.external",
+                params![
+                    record.project_id,
+                    record.connection_id,
+                    record.instance_id,
+                    record.engine,
+                    record.host,
+                    record.port,
+                    record.database_name,
+                    record.user_name,
+                    record.secret_path,
+                    i64::from(record.external)
+                ],
+            )
+            .map_err(|source| Error::database("write database binding", source))?;
+        Ok(())
+    }
+
+    pub fn delete_db_binding(&self, project_id: &str, connection_id: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "DELETE FROM db_bindings WHERE project_id = ?1 AND connection_id = ?2",
+                params![project_id, connection_id],
+            )
+            .map_err(|source| Error::database("delete database binding", source))?;
+        Ok(())
+    }
+
+    pub fn list_db_bindings(&self) -> Result<Vec<DbBindingRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT project_id, connection_id, instance_id, engine, host, port,
+                        database_name, user_name, secret_path, external
+                 FROM db_bindings ORDER BY project_id, connection_id",
+            )
+            .map_err(|source| Error::database("prepare database bindings", source))?;
+        let rows = stmt
+            .query_map([], |row| {
+                let external: i64 = row.get(9)?;
+                Ok(DbBindingRecord {
+                    project_id: row.get(0)?,
+                    connection_id: row.get(1)?,
+                    instance_id: row.get(2)?,
+                    engine: row.get(3)?,
+                    host: row.get(4)?,
+                    port: row.get(5)?,
+                    database_name: row.get(6)?,
+                    user_name: row.get(7)?,
+                    secret_path: row.get(8)?,
+                    external: external != 0,
+                })
+            })
+            .map_err(|source| Error::database("query database bindings", source))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|source| Error::database("read database binding", source))
+    }
+
+    pub fn upsert_sqlite(&self, record: &SqliteRecord) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO project_sqlite (project_id, path) VALUES (?1, ?2)
+                 ON CONFLICT(project_id) DO UPDATE SET path = excluded.path",
+                params![record.project_id, record.path],
+            )
+            .map_err(|source| Error::database("write sqlite path", source))?;
+        Ok(())
+    }
+
+    pub fn get_sqlite(&self, project_id: &str) -> Result<Option<SqliteRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT project_id, path FROM project_sqlite WHERE project_id = ?1")
+            .map_err(|source| Error::database("prepare sqlite path", source))?;
+        let mut rows = stmt
+            .query(params![project_id])
+            .map_err(|source| Error::database("query sqlite path", source))?;
+        match rows
+            .next()
+            .map_err(|source| Error::database("read sqlite path", source))?
+        {
+            Some(row) => Ok(Some(SqliteRecord {
+                project_id: row
+                    .get(0)
+                    .map_err(|source| Error::database("read sqlite project", source))?,
+                path: row
+                    .get(1)
+                    .map_err(|source| Error::database("read sqlite file", source))?,
+            })),
+            None => Ok(None),
+        }
     }
 
     pub fn upsert_publication(&self, record: &PublicationRecord) -> Result<()> {
@@ -624,6 +862,19 @@ impl Store {
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(|source| Error::database("read publication", source))
     }
+}
+
+fn map_instance(row: &rusqlite::Row<'_>) -> rusqlite::Result<DbInstanceRecord> {
+    Ok(DbInstanceRecord {
+        id: row.get(0)?,
+        engine: row.get(1)?,
+        port: row.get(2)?,
+        data_dir: row.get(3)?,
+        secret_path: row.get(4)?,
+        state: row.get(5)?,
+        pid: row.get(6)?,
+        identity: row.get(7)?,
+    })
 }
 
 fn map_package(row: &rusqlite::Row<'_>) -> rusqlite::Result<PackageRecord> {
@@ -686,7 +937,7 @@ mod tests {
         let dir = temp_dir();
         {
             let store = Store::open(&dir).expect("open");
-            assert_eq!(store.schema_version().expect("version"), 4);
+            assert_eq!(store.schema_version().expect("version"), 5);
             store.put("display_name", "Ada").expect("put");
             assert_eq!(
                 store.last_event().expect("event").as_deref(),
@@ -694,7 +945,7 @@ mod tests {
             );
         }
         let store = Store::open(&dir).expect("reopen");
-        assert_eq!(store.schema_version().expect("version"), 4);
+        assert_eq!(store.schema_version().expect("version"), 5);
         assert_eq!(
             store.get("display_name").expect("get").as_deref(),
             Some("Ada")

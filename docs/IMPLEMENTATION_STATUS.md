@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 31 October 2026.
+Updated: 1 November 2026.
 
 ## Completed preparation
 
@@ -23,7 +23,7 @@ Updated: 31 October 2026.
 | 3: project runner | Partial. Linux x86_64 process and dependency checks passed on 1 November 2026. Windows 10 and macOS 14.5 launches are pending | Run the same project and dependency flows on Windows 10 x64 and the M1 Pro |
 | 4: desktop workflows | Partial. Desktop screens and tray policy are implemented as of 1 November 2026. A live window was not opened on Windows 10 or macOS 14.5 | Open the desktop on those machines and run one project through import, install, start, logs, restart, and stop |
 | 5: Apache/HTTPS | Partial. Linux x86_64 shared Apache, proxy, static rewrite, and generated HTTPS passed on 1 November 2026. Windows catalog pin is the Stage 0 zip and was not launched again. macOS Apache remains blocked | Launch the Windows catalog Apache on Windows 10. Keep macOS blocked until a relocatable arm64 archive exists. System trust and ports 80/443 stay pending |
-| 6: databases | Not started | MySQL then PostgreSQL providers, SQLite and backup/restore |
+| 6: databases | Partial. Linux x86_64 MySQL 8.0.46, PostgreSQL 16.15, and SQLite 3.45.1 passed on 1 November 2026. Windows catalog PostgreSQL was not launched again. MySQL has no SHA256 catalog entry. macOS database archives stay blocked | Launch the Windows catalog PostgreSQL on Windows 10. Leave MySQL out of the catalog until a SHA256 exists. Leave macOS blocked until an approved archive exists. Credential Manager and Keychain remain pending |
 | 7: updates/recovery | Not started | Side-by-side updates and interrupted-operation recovery |
 | 8: personal release | Not started | Real-project acceptance on Windows and Mac |
 | 8A: PHP/extensions | Not started | PHP/Composer, native extension profiles, Memcached server/client feasibility and integration |
@@ -111,3 +111,19 @@ Commands and outcomes on this machine:
 Details: `docs/evidence/S5-APACHE.md` and `docs/decisions/0003-apache-sites.md`.
 
 Next task: run the Windows catalog Apache on Windows 10 x64. Leave macOS Apache blocked until a relocatable arm64 build exists. Do not treat directory trust or this Linux `apache2` as the Windows or macOS trust and package checks.
+
+## Stage 6 worker handoff
+
+1 November 2026. Slice: S6-DATABASES. Executed on Linux x86_64 (`uname` 6.12.94+, rustc 1.99.1, MySQL 8.0.46 at `/usr/sbin/mysqld`, PostgreSQL 16.15 at `/usr/lib/postgresql/16/bin/postgres`, SQLite 3.45.1). This is not the Windows 10 or macOS 14.5 acceptance machine.
+
+Managed instances live under the data directory, bind `127.0.0.1`, and keep their files when a project stops or a connection is detached. External connections have no process. SQLite is a project file copied with the backup API. `db migrate` is refused. Passwords stay in mode `0600` files and off the command line. The Windows catalog lists the PostgreSQL 18.6 zip from Stage 0. MySQL stays out because the publisher zip is MD5-only. macOS database archives stay out.
+
+Commands and outcomes on this machine:
+
+- `cargo test --workspace --exclude stackyard-desktop --offline` passed, including the MySQL, PostgreSQL, and SQLite restart and restore test.
+- `cargo test -p stackyard-desktop --lib --offline` passed. `npx tsc --noEmit` in `apps/desktop` passed.
+- Chrome on the Vite page showed the Databases section and MySQL and PostgreSQL under Use existing. Create needs the desktop engine, which that browser does not have.
+
+Details: `docs/evidence/S6-DATABASES.md` and `docs/decisions/0004-databases.md`.
+
+Next task: launch the Windows catalog PostgreSQL on Windows 10. Do not add MySQL to the catalog without a SHA256. Leave macOS MySQL and PostgreSQL blocked. Do not treat these distro 8.0 and 16 servers as the Windows 8.4 and 18.6 checks, and do not treat secret files as Credential Manager or Keychain.
