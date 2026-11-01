@@ -79,7 +79,28 @@ pub fn pipe_path(data_dir: &Path) -> String {
 }
 
 pub fn socket_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("engine.sock")
+    let inside = data_dir.join("engine.sock");
+    // macOS sun_path holds 104 bytes. A long temp or home path cannot host the socket.
+    if cfg!(unix) && inside.as_os_str().len() >= 100 {
+        return short_socket_path(data_dir);
+    }
+    inside
+}
+
+pub fn short_socket_path(data_dir: &Path) -> PathBuf {
+    PathBuf::from(format!("/tmp/sy-{}", current_uid()))
+        .join(format!("{}.sock", endpoint_id(data_dir)))
+}
+
+fn current_uid() -> u32 {
+    #[cfg(unix)]
+    {
+        unsafe { libc::geteuid() }
+    }
+    #[cfg(not(unix))]
+    {
+        0
+    }
 }
 
 #[cfg(test)]
@@ -106,5 +127,27 @@ mod tests {
         let again = prepare_data_dir(&prepared).expect("prepare again");
         assert_eq!(endpoint_id(&prepared), endpoint_id(&again));
         let _ = fs::remove_dir_all(&prepared);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_long_data_directory_gets_a_short_socket_path() {
+        let mut dir = PathBuf::from("/tmp");
+        for _ in 0..12 {
+            dir.push("stackyard-long-name");
+        }
+        let socket = socket_path(&dir);
+        assert!(
+            socket.as_os_str().len() < 100,
+            "socket path too long: {}",
+            socket.display()
+        );
+        let name = socket
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        assert!(name.starts_with("sy-"), "{name}");
+        assert_eq!(socket, short_socket_path(&dir));
     }
 }
