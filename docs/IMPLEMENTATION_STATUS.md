@@ -20,7 +20,7 @@ Updated: 31 October 2026.
 | 0: package feasibility | Partial. Windows runtime and server probes accepted 31 October 2026. Mac metadata is recorded and every Mac launch is pending or blocked | Run `scripts/verification/macos/packages.sh` on the M1 Pro. Resolve macOS Apache and MySQL archives before approving those providers |
 | 1: foundation | Partial. Windows skeleton runs as of 1 November 2026. Mac toolchain and desktop open are pending | Finish the Mac toolchain check and open the desktop there. Then Stage 2 package providers |
 | 2: packages | Partial. Windows Node, Python, uv, and pnpm can be installed or referenced as of 1 November 2026. macOS packages are not in the catalog | Run the same install and selection flow on the M1 Pro after the Mac catalog pins are payload-checked |
-| 3: project runner | Not started | Process lifecycle, dependency operations, and four application fixtures |
+| 3: project runner | Partial. Linux x86_64 process and dependency checks passed on 1 November 2026. Windows 10 and macOS 14.5 launches are pending | Run the same project and dependency flows on Windows 10 x64 and the M1 Pro |
 | 4: desktop workflows | Not started | Components/projects/logs with real backend actions |
 | 5: Apache/HTTPS | Not started | Shared virtual hosts, proxying, trust setup |
 | 6: databases | Not started | MySQL then PostgreSQL providers, SQLite and backup/restore |
@@ -79,3 +79,19 @@ The product name is now Stackyard. The Stage 1 records below used the placeholde
 The runnable catalog is `catalog/packages.json`. Windows Node 24.22.2, CPython 3.12.16, uv 0.13.6, and pnpm 12.16.1 downloaded into `.artifacts/S2-PACKAGES`, matched by the installer digest check, and launched. Existing Python 3.12.3 was recorded and left at `C:\Python\Python312\python.exe`. Removing that reference was refused. Details: `docs/evidence/S2-PACKAGES.md`.
 
 Next task: payload-check the macOS Node, Python, uv, and pnpm pins on the M1 Pro and add them to the catalog only after that. Server packages stay later.
+
+## Stage 3 coordinator handoff
+
+1 November 2026. Slice: S3-PROJECTS. Executed on Linux x86_64 (`uname` 6.12.94+, rustc 1.99.1). This is not the Windows 10 or macOS 14.5 acceptance machine.
+
+Shareable project intent is `stackyard.toml`. The engine database stores the project root and observed process state. Unix services run in their own process group. Windows code assigns a job object that ends the tree when the handle closes; that path was not launched here.
+
+Commands and outcomes on this machine:
+
+- `cargo test -p stackyard-core -p stackyard-engine -p stackyard-cli` passed, including two projects on different runtimes, hot reload, child cleanup, partial start rollback, cancel, occupied port, bounded restart, crash recovery that leaves an unrelated process alive, npm versus pnpm lockfile choice, and pip environment isolation.
+- CLI smoke with Node v22.23.4 and Python 3.12.3: `fixtures/node-http` installed with npm 10.9.9 and served `node-http`, then `reloaded`. `fixtures/flask-app` installed Flask 3.1.3 into an app-owned virtual environment and served `flask-ok`. `fixtures/fastapi-app` installed FastAPI 0.162.0 and uvicorn 0.54.0; `--reload` changed the response from `{"ok":true}` to `{"ok":"reloaded"}`.
+- `fixtures/next-app` installed with pnpm 12.16.1 and served a page containing `stackyard-next` on `127.0.0.1`. The generated `pnpm-lock.yaml` is committed. uv was not installed here, so `uv sync` was not executed; lockfile detection is covered by a unit test.
+
+Details: `docs/evidence/S3-PROJECTS.md`.
+
+Next task: repeat the Stage 3 project and dependency smoke on Windows 10 x64 and macOS 14.5 arm64. Mac package catalog pins stay blocked on a payload check.

@@ -1,0 +1,7 @@
+{
+  "name": "stackyard-node-http",
+  "private": true,
+  "dependencies": {
+    "stackyard-hello": "file:vendor/hello"
+  }
+}

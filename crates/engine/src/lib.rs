@@ -1,7 +1,11 @@
 //! Per-user engine process. Desktop and CLI are clients of [`serve`].
 
+mod control;
 mod endpoint;
+mod group;
 mod jobs;
+mod supervisor;
+mod tasks;
 
 use std::path::{Path, PathBuf};
 use std::process;
@@ -10,10 +14,12 @@ use std::sync::Arc;
 use jobs::Jobs;
 use stackyard_core::{
     adopt_existing, catalog_for_host, check_api_version, discover_candidates, download_and_install,
-    ensure_default_node_manager, find_package, prepare_data_dir, recv, remove_package,
-    select_for_project, send, Command, Error, Outcome, Progress, Request, Response, Result, Store,
-    API_VERSION,
+    ensure_default_node_manager, find_package, import_project, list_project_views,
+    prepare_data_dir, project_view, recv, remove_package, select_for_project, send, Command,
+    DepAction, Error, Outcome, Progress, Request, Response, Result, Store, API_VERSION,
 };
+use supervisor::Supervisor;
+use tasks::TaskBoard;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
 pub use stackyard_core::Error as EngineError;
@@ -30,16 +36,20 @@ pub fn serve(data_dir: &Path) -> Result<()> {
 async fn listen(data_dir: PathBuf) -> Result<()> {
     let store = Store::open(&data_dir)?;
     let jobs = Jobs::new();
+    let tasks = TaskBoard::new();
+    let supervisor = supervisor::new(data_dir.clone());
+    supervisor.reconcile()?;
     let mut endpoint = endpoint::Endpoint::bind(&data_dir)?;
     loop {
         let mut client = endpoint.accept().await?;
-        let stop = match handle_client(&mut client, &store, &data_dir, &jobs).await {
-            Ok(stop) => stop,
-            Err(err) => {
-                eprintln!("engine client: {err}");
-                false
-            }
-        };
+        let stop =
+            match handle_client(&mut client, &store, &data_dir, &jobs, &tasks, &supervisor).await {
+                Ok(stop) => stop,
+                Err(err) => {
+                    eprintln!("engine client: {err}");
+                    false
+                }
+            };
         if stop {
             break;
         }
@@ -52,6 +62,8 @@ async fn handle_client<S>(
     store: &Store,
     data_dir: &Path,
     jobs: &Arc<Jobs>,
+    tasks: &Arc<TaskBoard>,
+    supervisor: &Arc<Supervisor>,
 ) -> Result<bool>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -60,7 +72,7 @@ where
         let mut reader = BufReader::new(&mut *stream);
         recv(&mut reader).await?
     };
-    let response = match dispatch(&request, store, data_dir, jobs).await {
+    let response = match dispatch(&request, store, data_dir, jobs, tasks, supervisor).await {
         Ok(outcome) => Response {
             v: API_VERSION,
             id: request.id.clone(),
@@ -87,6 +99,8 @@ async fn dispatch(
     store: &Store,
     data_dir: &Path,
     jobs: &Arc<Jobs>,
+    tasks: &Arc<TaskBoard>,
+    supervisor: &Arc<Supervisor>,
 ) -> Result<Outcome> {
     check_api_version(request.v)?;
     match &request.cmd {
@@ -108,7 +122,10 @@ async fn dispatch(
                 value: Some(value.clone()),
             })
         }
-        Command::Stop => Ok(Outcome::Stopped),
+        Command::Stop => {
+            supervisor.shutdown();
+            Ok(Outcome::Stopped)
+        }
         Command::ListCatalog => Ok(Outcome::Catalog {
             packages: catalog_for_host()?,
         }),
@@ -154,6 +171,91 @@ async fn dispatch(
             Ok(Outcome::Packages {
                 packages: store.list_packages()?,
             })
+        }
+        Command::ImportProject { path } => Ok(Outcome::Project {
+            project: import_project(data_dir, Path::new(path))?,
+        }),
+        Command::ListProjects => Ok(Outcome::Projects {
+            projects: list_project_views(data_dir)?,
+        }),
+        Command::ProjectStatus { project_id } => Ok(Outcome::Project {
+            project: project_view(data_dir, project_id)?,
+        }),
+        Command::StartProject { project_id } => Ok(Outcome::Project {
+            project: supervisor.start(project_id)?,
+        }),
+        Command::StopProject { project_id } => Ok(Outcome::Project {
+            project: supervisor.stop(project_id)?,
+        }),
+        Command::RestartProject { project_id } => Ok(Outcome::Project {
+            project: supervisor.restart(project_id)?,
+        }),
+        Command::CancelStart { project_id } => {
+            supervisor.cancel(project_id)?;
+            Ok(Outcome::Project {
+                project: project_view(data_dir, project_id)?,
+            })
+        }
+        Command::ReadLogs {
+            project_id,
+            service_id,
+            offset,
+        } => control::read_service_log(data_dir, project_id, service_id, *offset),
+        Command::Exec {
+            project_id,
+            service_id,
+            args,
+        } => control::start_exec(tasks, data_dir, project_id, service_id, args),
+        Command::DepInstall { project_id, scope } => {
+            control::start_dependency(tasks, data_dir, project_id, DepAction::Install, None, scope)
+        }
+        Command::DepAdd {
+            project_id,
+            package,
+            scope,
+        } => control::start_dependency(
+            tasks,
+            data_dir,
+            project_id,
+            DepAction::Add,
+            Some(package),
+            scope,
+        ),
+        Command::DepRemove {
+            project_id,
+            package,
+            scope,
+        } => control::start_dependency(
+            tasks,
+            data_dir,
+            project_id,
+            DepAction::Remove,
+            Some(package),
+            scope,
+        ),
+        Command::DepUpdate {
+            project_id,
+            package,
+            scope,
+        } => control::start_dependency(
+            tasks,
+            data_dir,
+            project_id,
+            DepAction::Update,
+            Some(package),
+            scope,
+        ),
+        Command::DepList { project_id, scope } => {
+            control::start_dependency(tasks, data_dir, project_id, DepAction::List, None, scope)
+        }
+        Command::DepStatus { operation_id } => control::task_outcome(tasks, operation_id),
+        Command::DepCancel { operation_id } => {
+            if !tasks.cancel(operation_id) {
+                return Err(Error::InvalidMessage(format!(
+                    "task {operation_id} was not found"
+                )));
+            }
+            control::task_outcome(tasks, operation_id)
         }
     }
 }

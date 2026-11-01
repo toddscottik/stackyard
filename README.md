@@ -12,7 +12,7 @@ Repository working rules are in [AGENTS.md](AGENTS.md). For parallel development
    [Dependency management](docs/DEPENDENCY_MANAGEMENT.md) specifies pnpm/pip workflows and PHP/Composer/native extensions, including Memcached server/client separation.
 4. [Product plan](docs/PRODUCT_PLAN.md) and [review](docs/PRODUCT_PLAN_REVIEW.md) — research and broader roadmap. The development plan takes precedence for current implementation scope.
 
-Stage 0 recorded Windows package probes. macOS package execution is still pending on the M1 Pro. The current implementation task is the Stage 1 foundation.
+Stage 0 recorded Windows package probes. macOS package execution is still pending on the M1 Pro. Stage 3 runs projects and dependency commands. Windows and macOS process checks for that stage are still pending; the Linux evidence is in `docs/evidence/S3-PROJECTS.md`.
 
 Development commands, from the repository root:
 
@@ -24,6 +24,10 @@ cargo run -p stackyard-cli -- stop
 cargo run -p stackyard-cli -- catalog
 cargo run -p stackyard-cli -- install node-24.22.2-windows-x64
 cargo run -p stackyard-cli -- use-existing python "C:\Python\Python312\python.exe"
+cargo run -p stackyard-cli -- import PATH
+cargo run -p stackyard-cli -- start PROJECT
+cargo run -p stackyard-cli -- stop-project PROJECT
+cargo run -p stackyard-cli -- deps install PROJECT
 npm --prefix apps/desktop install
 npm --prefix apps/desktop run dev
 ```

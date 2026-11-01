@@ -1,0 +1,13 @@
+schema = 1
+name = "flask-app"
+manager = "pip"
+
+[[service]]
+id = "web"
+runtime = "python"
+command = ["python", "-m", "flask", "--app", "app", "run", "--host", "127.0.0.1", "--port", "{port}"]
+working_directory = "."
+ready_path = "/"
+ready_timeout_secs = 20
+port = 0
+restart = "never"
