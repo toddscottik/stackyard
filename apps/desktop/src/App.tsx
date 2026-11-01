@@ -5,6 +5,7 @@ import {
   errorText,
   type CatalogItem,
   type Installed,
+  type Databases,
   type Front,
   type Operation,
   type Project,
@@ -13,11 +14,12 @@ import {
   type Task,
 } from "./api";
 
-type Section = "projects" | "components" | "settings";
+type Section = "projects" | "components" | "databases" | "settings";
 
 const headings: Record<Section, string> = {
   projects: "Projects",
   components: "Components",
+  databases: "Databases",
   settings: "Settings",
 };
 
@@ -30,6 +32,7 @@ export function App() {
   const [packages, setPackages] = useState<Installed[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [front, setFront] = useState<Front | null>(null);
+  const [databases, setDatabases] = useState<Databases | null>(null);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
   const [desktop, setDesktop] = useState(true);
@@ -45,18 +48,20 @@ export function App() {
       setError("Open the Stackyard desktop window to reach the engine.");
       return;
     }
-    const [nextStatus, nextProjects, nextPackages, nextCatalog, nextFront] = await Promise.all([
+    const [nextStatus, nextProjects, nextPackages, nextCatalog, nextFront, nextDatabases] = await Promise.all([
       api.status(),
       api.projects(),
       api.packages(),
       api.catalog(),
       api.front(),
+      api.databases(),
     ]);
     setStatus(nextStatus);
     setProjects(nextProjects);
     setPackages(nextPackages);
     setCatalog(nextCatalog);
     setFront(nextFront);
+    setDatabases(nextDatabases);
     setSelectedId((current) => {
       if (current === null) {
         return nextProjects[0]?.id ?? "";
@@ -115,6 +120,7 @@ export function App() {
         <p className="scope">This machine</p>
         <SectionButton current={section} id="projects" onSelect={openSection} label="Projects" />
         <SectionButton current={section} id="components" onSelect={openSection} label="Components" />
+        <SectionButton current={section} id="databases" onSelect={openSection} label="Databases" />
         <SectionButton current={section} id="settings" onSelect={openSection} label="Settings" />
         <button type="button" className="btn menu-close" onClick={() => setMenuOpen(false)}>
           Close
@@ -192,6 +198,16 @@ export function App() {
               onError={report}
               onProgress={setProgress}
               onRefresh={() => refresh().catch(report)}
+            />
+          ) : null}
+          {section === "databases" ? (
+            <DatabasesScreen
+              databases={databases}
+              projects={projects}
+              desktop={desktop}
+              onDatabases={setDatabases}
+              onError={report}
+              onProgress={setProgress}
             />
           ) : null}
           {section === "settings" ? (
@@ -924,6 +940,295 @@ async function dependency(
   }
 }
 
+function DatabasesScreen({
+  databases,
+  projects,
+  desktop,
+  onDatabases,
+  onError,
+  onProgress,
+}: {
+  databases: Databases | null;
+  projects: Project[];
+  desktop: boolean;
+  onDatabases: (view: Databases) => void;
+  onError: (err: unknown) => void;
+  onProgress: (text: string) => void;
+}) {
+  const [engine, setEngine] = useState("mysql");
+  const [port, setPort] = useState("");
+  const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
+  const [host, setHost] = useState("127.0.0.1");
+  const [attachPort, setAttachPort] = useState("13306");
+  const [database, setDatabase] = useState("");
+  const [user, setUser] = useState("");
+  const [password, setPassword] = useState("");
+  const [sqliteProject, setSqliteProject] = useState(projects[0]?.id ?? "");
+  const [sqlitePath, setSqlitePath] = useState("data/app.sqlite");
+
+  useEffect(() => {
+    if (!projectId && projects[0]) {
+      setProjectId(projects[0].id);
+    }
+    if (!sqliteProject && projects[0]) {
+      setSqliteProject(projects[0].id);
+    }
+  }, [projectId, sqliteProject, projects]);
+
+  async function run(label: string, action: () => Promise<Databases>) {
+    onProgress(label);
+    try {
+      onDatabases(await action());
+      onProgress("");
+    } catch (err) {
+      onProgress("");
+      onError(err);
+    }
+  }
+
+  const instances = databases?.instances ?? [];
+  const bindings = databases?.bindings ?? [];
+  const sqlite = databases?.sqlite ?? [];
+  const finding =
+    instances.length === 0 && bindings.length === 0 && sqlite.length === 0
+      ? "No database is recorded. A managed instance keeps its files when a project stops."
+      : `${instances.filter((row) => row.state === "running").length} managed ${
+          instances.filter((row) => row.state === "running").length === 1 ? "instance" : "instances"
+        } running.`;
+
+  return (
+    <>
+      <p className="finding">{databases ? finding : "Database status appears when this window can reach the engine."}</p>
+      <p className="hint">
+        Stopping a project leaves a shared MySQL or PostgreSQL instance running. An external connection has no process to stop. Removing a runtime does not delete database files. Major-version migration is not available.
+      </p>
+      <section className="block" aria-label="Managed databases">
+        <h2>Managed instances</h2>
+        {instances.length === 0 ? <p className="empty">No managed MySQL or PostgreSQL instance.</p> : null}
+        <ul className="slips">
+          {instances.map((row) => (
+            <li key={row.id} className="slip">
+              <span className="slip-name">{row.engine}</span>
+              <span className={row.state === "running" ? "pill pos" : "pill"}>{row.state}</span>
+              <span className="slip-sub">
+                <span className="mono">127.0.0.1:{row.port}</span>
+                <span className="mono">{row.dataDir}</span>
+              </span>
+              <button
+                type="button"
+                className="btn"
+                disabled={!desktop}
+                onClick={() =>
+                  void run(row.state === "running" ? "Stopping database…" : "Starting database…", () =>
+                    row.state === "running" ? api.stopDatabase(row.id) : api.startDatabase(row.id),
+                  )
+                }
+              >
+                {row.state === "running" ? "Stop" : "Start"}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const chosen = port.trim() === "" ? 0 : Number(port);
+            if (!Number.isInteger(chosen) || chosen < 0 || chosen > 65535) {
+              onError("Database port must be empty or a high port.");
+              return;
+            }
+            void run("Creating database instance…", () => api.createDatabase(engine, chosen));
+          }}
+        >
+          <div className="field">
+            <label htmlFor="db-engine">Engine</label>
+            <select id="db-engine" className="input" value={engine} onChange={(event) => setEngine(event.target.value)}>
+              <option value="mysql">MySQL</option>
+              <option value="postgres">PostgreSQL</option>
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="db-port">Port</label>
+            <input
+              id="db-port"
+              className="input mono"
+              value={port}
+              onChange={(event) => setPort(event.target.value)}
+              placeholder="Empty picks a free high port"
+              inputMode="numeric"
+            />
+          </div>
+          <button type="submit" className="btn primary" disabled={!desktop}>
+            Create instance
+          </button>
+        </form>
+      </section>
+      <section className="block" aria-label="Database connections">
+        <h2>Connections</h2>
+        {bindings.length === 0 ? <p className="empty">No project database or external connection.</p> : null}
+        <ul className="slips">
+          {bindings.map((row) => (
+            <li key={`${row.projectId}:${row.connectionId}`} className="slip">
+              <span className="slip-name">{row.databaseName}</span>
+              <span className="pill">{row.external ? "external" : row.engine}</span>
+              <span className="slip-sub">
+                <span>
+                  {row.projectId} · {row.userName}
+                </span>
+                <span className="mono">
+                  {row.host}:{row.port}
+                </span>
+              </span>
+              <button
+                type="button"
+                className="btn"
+                disabled={!desktop}
+                onClick={() =>
+                  void run("Detaching connection…", () => api.detachDatabase(row.projectId, row.connectionId))
+                }
+              >
+                Detach
+              </button>
+            </li>
+          ))}
+        </ul>
+        <h2>Connect existing</h2>
+        <p className="hint">Loopback only. The password is stored for this user and is not shown again.</p>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const chosen = Number(attachPort);
+            if (!projectId) {
+              onError("Import a project before attaching a database.");
+              return;
+            }
+            if (!Number.isInteger(chosen) || chosen < 1024 || chosen > 65535) {
+              onError("An external database port must be a high port.");
+              return;
+            }
+            void run("Attaching connection…", async () => {
+              const view = await api.attachDatabase({
+                projectId,
+                engine,
+                host: host.trim(),
+                port: chosen,
+                database: database.trim(),
+                user: user.trim(),
+                password,
+              });
+              setPassword("");
+              setDatabase("");
+              return view;
+            });
+          }}
+        >
+          <div className="field">
+            <label htmlFor="db-project">Project</label>
+            <select id="db-project" className="input" value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+              {projects.length === 0 ? <option value="">No project imported</option> : null}
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="db-host">Host</label>
+            <input id="db-host" className="input mono" value={host} onChange={(event) => setHost(event.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="db-attach-port">Port</label>
+            <input
+              id="db-attach-port"
+              className="input mono"
+              value={attachPort}
+              onChange={(event) => setAttachPort(event.target.value)}
+              inputMode="numeric"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="db-name">Database</label>
+            <input id="db-name" className="input" value={database} onChange={(event) => setDatabase(event.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="db-user">User</label>
+            <input id="db-user" className="input" value={user} onChange={(event) => setUser(event.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="db-password">Password</label>
+            <input
+              id="db-password"
+              className="input"
+              type="password"
+              value={password}
+              autoComplete="off"
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </div>
+          <button type="submit" className="btn primary" disabled={!desktop || password === ""}>
+            Connect existing
+          </button>
+        </form>
+      </section>
+      <section className="block" aria-label="SQLite">
+        <h2>SQLite</h2>
+        <p className="hint">A SQLite file is not a service. Backup copies the file through the engine.</p>
+        {sqlite.length === 0 ? <p className="empty">No project has selected a SQLite file.</p> : null}
+        <ul className="slips">
+          {sqlite.map((row) => (
+            <li key={row.projectId} className="slip">
+              <span className="slip-name">{row.projectId}</span>
+              <span className="slip-sub">
+                <span className="mono">{row.path}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!sqliteProject) {
+              onError("Import a project before selecting a SQLite file.");
+              return;
+            }
+            void run("Preparing SQLite file…", () => api.useSqlite(sqliteProject, sqlitePath.trim()));
+          }}
+        >
+          <div className="field">
+            <label htmlFor="sqlite-project">Project</label>
+            <select
+              id="sqlite-project"
+              className="input"
+              value={sqliteProject}
+              onChange={(event) => setSqliteProject(event.target.value)}
+            >
+              {projects.length === 0 ? <option value="">No project imported</option> : null}
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="sqlite-path">File inside the project</label>
+            <input
+              id="sqlite-path"
+              className="input mono"
+              value={sqlitePath}
+              onChange={(event) => setSqlitePath(event.target.value)}
+            />
+          </div>
+          <button type="submit" className="btn" disabled={!desktop}>
+            Use SQLite file
+          </button>
+        </form>
+      </section>
+    </>
+  );
+}
+
 function Components({
   catalog,
   packages,
@@ -1054,6 +1359,8 @@ function Components({
                 <option value="pnpm">pnpm</option>
                 <option value="uv">uv</option>
                 <option value="apache">Apache</option>
+                <option value="mysql">MySQL</option>
+                <option value="postgres">PostgreSQL</option>
               </select>
             </div>
             <div className="field">
@@ -1068,7 +1375,9 @@ function Components({
       </div>
       <section className="block">
         <h2>External connections</h2>
-        <p className="empty">No external connections. Database and remote endpoints are added with those providers.</p>
+        <p className="hint">
+          External databases are recorded on Databases. Detach removes the connection and leaves that server running.
+        </p>
       </section>
     </>
   );

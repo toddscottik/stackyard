@@ -7,6 +7,7 @@ mod apache;
 mod archive;
 mod catalog;
 mod client;
+mod database;
 mod deps;
 mod error;
 mod install;
@@ -27,6 +28,11 @@ pub use apache::{
 };
 pub use catalog::{catalog_for_host, current_target, find_package, CatalogPackage};
 pub use client::{ensure_engine, roundtrip};
+pub use database::{
+    contained_sqlite, random_secret, read_secret, redact, require_empty_data_dir, require_ident,
+    sqlite_backup, sqlite_init, sqlite_read, sqlite_write, write_secret, DEFAULT_MYSQL_PORT,
+    DEFAULT_POSTGRES_PORT,
+};
 pub use deps::{
     manifest_fingerprint, plan_dependency, resolve_manager, scope_dir, tool_version, DepAction,
     DepPlan, DepRequest, PlannedCommand, Toolchain,
@@ -50,8 +56,11 @@ pub use project::{
     resolve_tool, service_launch, venv_python, Launch, ProjectView, ServiceView,
 };
 pub use protocol::{
-    check_api_version, next_request_id, Command, DiscoveredRuntime, Outcome, Request, Response,
-    SiteView, API_VERSION,
+    check_api_version, next_request_id, Command, DbView, DiscoveredRuntime, Outcome, Request,
+    Response, SiteView, API_VERSION,
 };
-pub use store::{PackageRecord, ProcessRecord, ProjectRecord, PublicationRecord, Store};
+pub use store::{
+    DbBindingRecord, DbInstanceRecord, PackageRecord, ProcessRecord, ProjectRecord,
+    PublicationRecord, SqliteRecord, Store,
+};
 pub use transport::{recv, send};

@@ -66,6 +66,19 @@
       "digest_source": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip.txt",
       "launch": "Apache24/bin/httpd.exe",
       "version_args": ["-v"]
+    },
+    {
+      "id": "postgres-18.6-windows-x64",
+      "kind": "server",
+      "name": "postgres",
+      "version": "18.6",
+      "target": "windows-x64",
+      "format": "zip",
+      "url": "https://get.enterprisedb.com/postgresql/postgresql-18.6-5-windows-x64-binaries.zip",
+      "sha256": "e2246ba91d22345bc3d017586c09ede52d9df180b1eeb480f050445f1cad84e2",
+      "digest_source": "https://get.enterprisedb.com/postgresql/postgresql-18.6-5-windows-x64-binaries.zip.sha256",
+      "launch": "pgsql/bin/postgres.exe",
+      "version_args": ["--version"]
     }
   ]
 }

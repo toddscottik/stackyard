@@ -67,6 +67,32 @@ export type Front = {
   sites: FrontSite[];
 };
 export type Logs = { offset: number; nextOffset: number; text: string };
+export type DbInstance = {
+  id: string;
+  engine: string;
+  port: number;
+  dataDir: string;
+  state: string;
+  pid: number | null;
+};
+export type DbBinding = {
+  projectId: string;
+  connectionId: string;
+  instanceId: string;
+  engine: string;
+  host: string;
+  port: number;
+  databaseName: string;
+  userName: string;
+  external: boolean;
+};
+export type SqliteFile = { projectId: string; path: string };
+export type Databases = {
+  instances: DbInstance[];
+  bindings: DbBinding[];
+  sqlite: SqliteFile[];
+  message: string;
+};
 
 export function engineAvailable(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -114,4 +140,20 @@ export const api = {
   unpublish: (projectId: string) => invoke<Front>("unpublish_project", { projectId }),
   restartFront: () => invoke<Front>("restart_front"),
   openSite: (url: string) => invoke<void>("open_site", { url }),
+  databases: () => invoke<Databases>("databases_status"),
+  createDatabase: (engine: string, port: number) => invoke<Databases>("database_create", { engine, port }),
+  startDatabase: (instanceId: string) => invoke<Databases>("database_start", { instanceId }),
+  stopDatabase: (instanceId: string) => invoke<Databases>("database_stop", { instanceId }),
+  attachDatabase: (input: {
+    projectId: string;
+    engine: string;
+    host: string;
+    port: number;
+    database: string;
+    user: string;
+    password: string;
+  }) => invoke<Databases>("database_attach", input),
+  detachDatabase: (projectId: string, connectionId: string) =>
+    invoke<Databases>("database_detach", { projectId, connectionId }),
+  useSqlite: (projectId: string, path: string) => invoke<Databases>("sqlite_use", { projectId, path }),
 };
