@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   engineAvailable,
@@ -23,6 +23,7 @@ export function App() {
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
   const [desktop, setDesktop] = useState(true);
+  const alertRef = useRef<HTMLParagraphElement>(null);
 
   const report = useCallback((err: unknown) => {
     setError(errorText(err));
@@ -51,6 +52,12 @@ export function App() {
     refresh().catch(report);
   }, [refresh, report]);
 
+  useEffect(() => {
+    if (error) {
+      alertRef.current?.focus();
+    }
+  }, [error]);
+
   const selected = projects.find((project) => project.id === selectedId) ?? null;
 
   return (
@@ -62,9 +69,9 @@ export function App() {
         <SectionButton current={section} id="settings" onSelect={setSection} label="Settings" />
         {status ? <p className="engine">Engine {status.pid}</p> : null}
       </nav>
-      <main id="main">
+      <main id="main" aria-busy={progress !== ""}>
         {error ? (
-          <p role="alert" className="banner">
+          <p role="alert" tabIndex={-1} ref={alertRef} className="banner">
             {error}
             <button type="button" className="quiet" onClick={() => setError("")}>
               Dismiss
