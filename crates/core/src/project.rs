@@ -70,7 +70,7 @@ pub fn import_project(data_dir: &Path, path: &Path) -> Result<ProjectView> {
     }
     let manifest = load_manifest(&root)?;
     let store = Store::open(data_dir)?;
-    let root_text = root.display().to_string();
+    let root_text = crate::paths::plain_path(root).display().to_string();
     if let Some(existing) = store.project_by_root(&root_text)? {
         store.rename_project(&existing.id, &manifest.name)?;
         store.record_event("project_import", &existing.id)?;
@@ -304,9 +304,11 @@ pub fn contained_dir(root: &Path, relative: &Path) -> Result<PathBuf> {
     };
     let canon = joined
         .canonicalize()
+        .map(crate::paths::plain_path)
         .map_err(|source| Error::io("open service directory", source))?;
     let root_canon = root
         .canonicalize()
+        .map(crate::paths::plain_path)
         .map_err(|source| Error::io("open project directory", source))?;
     if canon.starts_with(&root_canon) {
         Ok(canon)
@@ -334,7 +336,9 @@ fn view_one(store: &Store, project: &ProjectRecord) -> Result<ProjectView> {
     Ok(ProjectView {
         id: project.id.clone(),
         name: manifest.name,
-        root: project.root.clone(),
+        root: crate::paths::plain_path(PathBuf::from(&project.root))
+            .display()
+            .to_string(),
         manager,
         manager_detail,
         selections: project_selections(store, &project.id)?,

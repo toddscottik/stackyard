@@ -399,7 +399,9 @@ impl Front {
             http_port: ports.http,
             https_port: ports.https,
             restart_impact: RESTART_IMPACT.to_string(),
-            ca_path: self.cert_dir().join("ca.pem").display().to_string(),
+            ca_path: stackyard_core::plain_path(self.cert_dir().join("ca.pem"))
+                .display()
+                .to_string(),
             resolves_localhost: label_resolves_to_loopback("stackyard.localhost"),
             sites,
         })

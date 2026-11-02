@@ -102,7 +102,7 @@ impl Databases {
             id: id.clone(),
             engine: engine.to_string(),
             port: i64::from(port),
-            data_dir: data.display().to_string(),
+            data_dir: plain_path(&data).display().to_string(),
             secret_path: secret_path.display().to_string(),
             state: "stopped".to_string(),
             pid: None,
@@ -499,8 +499,8 @@ impl Databases {
                 }
             }
         }
-        let server = self.server_binary(&record.engine)?;
-        let data = PathBuf::from(&record.data_dir);
+        let server = plain_path(&self.server_binary(&record.engine)?);
+        let data = plain_path(&PathBuf::from(&record.data_dir));
         let log = self
             .data_dir
             .join("logs")
@@ -630,7 +630,7 @@ impl Databases {
                 detail: "database server executable is missing".to_string(),
             });
         }
-        Ok(path)
+        Ok(plain_path(&path))
     }
 
     fn view(&self, message: &str) -> Result<Outcome> {
@@ -661,8 +661,10 @@ impl Databases {
 }
 
 fn init_mysql(server: &Path, data: &Path) -> Result<()> {
-    let basedir = mysql_basedir(server);
-    let output = Command::new(server)
+    let server = plain_path(server);
+    let data = plain_path(data);
+    let basedir = mysql_basedir(&server);
+    let output = Command::new(&server)
         .arg("--no-defaults")
         .arg("--initialize-insecure")
         .arg(format!("--datadir={}", data.display()))
@@ -698,15 +700,24 @@ fn bootstrap_mysql(
 }
 
 fn init_postgres(server: &Path, data: &Path, secret: &Path, port: u16) -> Result<()> {
-    let initdb = tool_near(server, &["initdb", "initdb.exe"])?;
+    let server = plain_path(server);
+    let data = plain_path(data);
+    let secret = plain_path(secret);
+    let initdb = tool_near(&server, &["initdb", "initdb.exe"])?;
     if let Some(parent) = data.parent() {
         fs::create_dir_all(parent).map_err(|source| Error::io("create postgres parent", source))?;
     }
-    let output = Command::new(initdb)
+    let mut command = Command::new(&initdb);
+    if let Some(bin) = initdb.parent() {
+        // initdb locates postgres.exe beside itself. A \\?\ path becomes //?/
+        // and that lookup fails on Windows.
+        command.current_dir(bin);
+    }
+    let output = command
         .arg("--no-locale")
         .arg("--encoding=UTF8")
         .arg("-D")
-        .arg(data)
+        .arg(&data)
         .arg("-U")
         .arg("stackyard")
         .arg(format!("--pwfile={}", secret.display()))
@@ -715,7 +726,7 @@ fn init_postgres(server: &Path, data: &Path, secret: &Path, port: u16) -> Result
         .output()
         .map_err(|source| Error::io("initdb", source))?;
     command_ok("initdb", &output, "")?;
-    let socket = data.parent().unwrap_or(data);
+    let socket = data.parent().unwrap_or(data.as_path());
     let mut conf = fs::OpenOptions::new()
         .append(true)
         .open(data.join("postgresql.conf"))
@@ -723,7 +734,7 @@ fn init_postgres(server: &Path, data: &Path, secret: &Path, port: u16) -> Result
     writeln!(
         conf,
         "\nlisten_addresses = '127.0.0.1'\nport = {port}\nunix_socket_directories = '{}'\n",
-        socket.display()
+        plain_path(socket).display()
     )
     .map_err(|source| Error::io("write postgresql.conf", source))?;
     Ok(())
@@ -831,6 +842,10 @@ fn mysql_basedir(server: &Path) -> PathBuf {
         .to_path_buf()
 }
 
+fn plain_path(path: &Path) -> PathBuf {
+    stackyard_core::plain_path(path.to_path_buf())
+}
+
 fn tool_near(server: &Path, names: &[&str]) -> Result<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(dir) = server.parent() {
@@ -884,7 +899,7 @@ fn command_ok(name: &str, output: &std::process::Output, secret: &str) -> Result
     if output.status.success() {
         Ok(text)
     } else {
-        Err(Error::InvalidMessage(format!("{name} failed: {text}")))
+        Err(Error::OperationFailed(format!("{name} failed: {text}")))
     }
 }
 
@@ -907,4 +922,5 @@ mod tests {
         assert!(!dir.join("secrets").exists());
         let _ = fs::remove_dir_all(dir);
     }
+
 }

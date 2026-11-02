@@ -51,7 +51,8 @@ pub use manifest::{
     SiteKind, SiteSpec,
 };
 pub use paths::{
-    default_data_dir, disposable_dir, endpoint_id, pipe_path, prepare_data_dir, socket_path,
+    default_data_dir, disposable_dir, endpoint_id, pipe_path, plain_path, prepare_data_dir,
+    socket_path,
 };
 pub use project::{
     active_state, contained_dir, ensure_venv, environment_dir, import_project, list_project_views,

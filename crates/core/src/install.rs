@@ -136,8 +136,10 @@ pub fn install_reader<R: Read>(
         version: package.version.clone(),
         target: package.target.clone(),
         source: "managed".to_string(),
-        path: final_dir.display().to_string(),
-        launch: final_dir.join(&package.launch).display().to_string(),
+        path: crate::paths::plain_path(final_dir.clone()).display().to_string(),
+        launch: crate::paths::plain_path(final_dir.join(&package.launch))
+            .display()
+            .to_string(),
         digest: Some(digest),
         removable: true,
     };

@@ -79,7 +79,23 @@ pub fn prepare_data_dir(path: &Path) -> Result<PathBuf> {
             .map_err(|source| Error::io("restrict data directory permissions", source))?;
     }
     path.canonicalize()
+        .map(plain_path)
         .map_err(|source| Error::io("canonicalize data directory", source))
+}
+
+/// `canonicalize` on Windows prefixes `\\?\`. That form is for long paths, not for people or for PostgreSQL.
+pub fn plain_path(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy();
+    let stripped = text
+        .strip_prefix(r"\\?\UNC\")
+        .map(|rest| format!(r"\\{rest}"))
+        .or_else(|| {
+            text.strip_prefix(r"\\?\")
+                .or_else(|| text.strip_prefix("//?/"))
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| text.into_owned());
+    PathBuf::from(stripped)
 }
 
 /// Stable endpoint id for a prepared data directory. The same directory always
@@ -162,5 +178,11 @@ mod tests {
             .unwrap_or("");
         assert!(name.starts_with("sy-"), "{name}");
         assert_eq!(socket, short_socket_path(&dir));
+    }
+
+    #[test]
+    fn windows_extended_prefix_is_not_kept() {
+        let path = plain_path(PathBuf::from(r"\\?\C:\stackyard\pgsql\bin\initdb.exe"));
+        assert_eq!(path, PathBuf::from(r"C:\stackyard\pgsql\bin\initdb.exe"));
     }
 }

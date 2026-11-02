@@ -141,7 +141,9 @@ async fn dispatch(
     match &request.cmd {
         Command::Status => Ok(Outcome::Status {
             pid: process::id(),
-            data_dir: data_dir.display().to_string(),
+            data_dir: stackyard_core::plain_path(data_dir.to_path_buf())
+                .display()
+                .to_string(),
             api_version: API_VERSION,
             schema_version: store.schema_version()?,
             last_event: store.last_event()?,
@@ -174,7 +176,7 @@ async fn dispatch(
                 .into_iter()
                 .map(|(role, path)| stackyard_core::DiscoveredRuntime {
                     role,
-                    path: path.display().to_string(),
+                    path: stackyard_core::plain_path(path).display().to_string(),
                 })
                 .collect(),
         }),

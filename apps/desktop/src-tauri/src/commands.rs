@@ -118,11 +118,17 @@ pub struct LogView {
     text: String,
 }
 
+fn show_path(value: impl AsRef<str>) -> String {
+    stackyard_core::plain_path(PathBuf::from(value.as_ref()))
+        .display()
+        .to_string()
+}
+
 fn project_view(project: stackyard_core::ProjectView) -> ProjectView {
     ProjectView {
         id: project.id,
         name: project.name,
-        root: project.root,
+        root: show_path(project.root),
         manager: project.manager,
         manager_detail: project.manager_detail,
         selections: project
@@ -168,7 +174,7 @@ pub async fn engine_status() -> Result<StatusView, String> {
             last_event,
         } => Ok(StatusView {
             pid,
-            data_dir,
+            data_dir: show_path(data_dir),
             api_version,
             schema_version,
             last_event,
@@ -200,8 +206,8 @@ pub async fn list_packages() -> Result<Vec<PackageView>, String> {
                 name: package.name,
                 source: package.source,
                 version: package.version,
-                path: package.path,
-                launch: package.launch,
+                path: show_path(package.path),
+                launch: show_path(package.launch),
             })
             .collect()),
         other => Err(format!("unexpected engine reply: {other:?}")),
@@ -501,7 +507,7 @@ fn front_view(outcome: Outcome) -> Result<FrontView, String> {
             http_port,
             https_port,
             restart_impact,
-            ca_path,
+            ca_path: show_path(ca_path),
             resolves_localhost,
             sites: sites
                 .into_iter()
@@ -590,7 +596,7 @@ fn databases_view(outcome: Outcome) -> Result<DatabasesView, String> {
                     id: row.id,
                     engine: row.engine,
                     port: row.port,
-                    data_dir: row.data_dir,
+                    data_dir: show_path(row.data_dir),
                     state: row.state,
                     pid: row.pid,
                 })
@@ -615,7 +621,7 @@ fn databases_view(outcome: Outcome) -> Result<DatabasesView, String> {
                 .into_iter()
                 .map(|row| SqliteView {
                     project_id: row.project_id,
-                    path: row.path,
+                    path: show_path(row.path),
                 })
                 .collect(),
             message: view.message,
@@ -648,7 +654,7 @@ pub async fn discover_runtimes() -> Result<Vec<DiscoveredView>, String> {
             .into_iter()
             .map(|item| DiscoveredView {
                 role: item.role,
-                path: item.path,
+                path: show_path(item.path),
             })
             .collect()),
         other => Err(format!("unexpected engine reply: {other:?}")),
