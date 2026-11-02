@@ -54,4 +54,4 @@ User instructions take precedence over repository guidance. For implementation s
 
 Repository inspection: `git status --short --branch`, `git diff --check`, `git diff --stat`.
 
-Canonical checks are `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`. Stage 0 verification scripts remain the package probes. The desktop UI build is `npm --prefix apps/desktop run build`.
+Canonical checks are `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`. Stage 0 verification scripts remain the package probes. The desktop UI build is `pnpm --dir apps/desktop run build`.

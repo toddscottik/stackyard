@@ -46,8 +46,8 @@ cargo run -p stackyard-cli -- diagnostics
 cargo run -p stackyard-cli -- updates
 cargo run -p stackyard-cli -- cleanup
 cargo run -p stackyard-cli -- deps recover PROJECT
-npm --prefix apps/desktop install
-npm --prefix apps/desktop run dev
+pnpm --dir apps/desktop install --frozen-lockfile
+pnpm --dir apps/desktop run dev
 ```
 
 The product name is Stackyard. Node projects default to pnpm; an existing npm lockfile stays on npm. The engine state defaults to `%LOCALAPPDATA%\stackyard` on Windows and `~/Library/Application Support/stackyard` on macOS. A previous `%LOCALAPPDATA%\localdev` directory is renamed on first launch. Tests use disposable directories. Rust is installed with rustup during Stage 1; the pinned toolchain is `rust-toolchain.toml`. WebView2 and Visual Studio 2022 C++ tools were already present on the Windows 10 machine. The Mac still needs its own Rust and Xcode Command Line Tools check. A build on a newer macOS runner does not replace testing on macOS 14.5.

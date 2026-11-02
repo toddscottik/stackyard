@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "pnpm@12.16.1",
   "scripts": {
     "vite:dev": "vite",
     "dev": "cargo build -p stackyard-engine --manifest-path ../../Cargo.toml && tauri dev",

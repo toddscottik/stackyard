@@ -15,8 +15,8 @@ From the repository root:
 ```text
 cargo test --workspace
 cargo run -p stackyard-cli -- status
-npm --prefix apps/desktop install
-npm --prefix apps/desktop run dev
+pnpm --dir apps/desktop install --frozen-lockfile
+pnpm --dir apps/desktop run dev
 ```
 
 `status` starts the per-user engine if it is not already running. `stop` stops managed projects, the shared Apache, and managed database instances.
