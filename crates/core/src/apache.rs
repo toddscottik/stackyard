@@ -182,11 +182,82 @@ pub fn merge_hosts(existing: &str, entries: &[(&str, &str)]) -> String {
 }
 
 pub fn label_resolves_to_loopback(host: &str) -> bool {
+    const TTL: std::time::Duration = std::time::Duration::from_secs(30);
+    const WAIT: std::time::Duration = std::time::Duration::from_millis(400);
+    if let Some(value) = cached_resolution(host, TTL) {
+        return value;
+    }
+    let host_owned = host.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let worker_host = host_owned.clone();
+    let spawned = std::thread::Builder::new()
+        .name("stackyard-resolve".to_string())
+        .spawn(move || {
+            let value = resolve_host_now(&worker_host);
+            remember_resolution(&worker_host, value);
+            let _ = tx.send(value);
+        })
+        .is_ok();
+    if !spawned {
+        return false;
+    }
+    match rx.recv_timeout(WAIT) {
+        Ok(value) => {
+            remember_resolution(&host_owned, value);
+            value
+        }
+        Err(_) => {
+            // Windows waits out the DNS client timeout for an unknown
+            // `.localhost` name. That stall is longer than an engine client
+            // will wait, and the eventual answer is still "not loopback".
+            remember_resolution(&host_owned, false);
+            false
+        }
+    }
+}
+
+fn resolve_host_now(host: &str) -> bool {
     use std::net::ToSocketAddrs;
     match (host, 80_u16).to_socket_addrs() {
         Ok(mut addrs) => addrs.any(|addr| addr.ip().is_loopback()),
         Err(_) => false,
     }
+}
+
+struct Resolution {
+    host: String,
+    value: bool,
+    at: std::time::Instant,
+}
+
+fn resolution_cache() -> &'static std::sync::Mutex<Vec<Resolution>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<Vec<Resolution>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+fn cached_resolution(host: &str, ttl: std::time::Duration) -> Option<bool> {
+    let guard = resolution_cache().lock().ok()?;
+    guard
+        .iter()
+        .find(|item| item.host == host && item.at.elapsed() < ttl)
+        .map(|item| item.value)
+}
+
+fn remember_resolution(host: &str, value: bool) {
+    let Ok(mut guard) = resolution_cache().lock() else {
+        return;
+    };
+    if let Some(item) = guard.iter_mut().find(|item| item.host == host) {
+        item.value = value;
+        item.at = std::time::Instant::now();
+        return;
+    }
+    guard.push(Resolution {
+        host: host.to_string(),
+        value,
+        at: std::time::Instant::now(),
+    });
 }
 
 pub fn module_directory(httpd: &Path) -> Option<PathBuf> {
@@ -533,6 +604,19 @@ fn cert_err(err: rcgen::Error) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn localhost_resolves_and_an_unknown_name_does_not_stall() {
+        assert!(label_resolves_to_loopback("localhost"));
+        let started = std::time::Instant::now();
+        let resolved = label_resolves_to_loopback("stackyard-missing.localhost");
+        assert!(!resolved);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "lookup took {:?}",
+            started.elapsed()
+        );
+    }
 
     #[test]
     fn hosts_are_one_label_and_test_is_explicit() {

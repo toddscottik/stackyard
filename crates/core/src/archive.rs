@@ -112,10 +112,11 @@ pub fn read_to_digest<R: Read>(
     mut reader: R,
     output: &Path,
     cancel: &dyn Fn() -> bool,
-) -> Result<(u64, String)> {
-    use sha2::{Digest, Sha256};
+) -> Result<(u64, String, String)> {
+    use sha2::Digest;
     let mut file = File::create(output).map_err(|source| Error::io("create download", source))?;
-    let mut hasher = Sha256::new();
+    let mut sha = sha2::Sha256::new();
+    let mut md5_hash = md5::Md5::new();
     let mut buffer = [0_u8; 64 * 1024];
     let mut total = 0_u64;
     loop {
@@ -132,12 +133,17 @@ pub fn read_to_digest<R: Read>(
         }
         file.write_all(&buffer[..read])
             .map_err(|source| Error::io("write download", source))?;
-        hasher.update(&buffer[..read]);
+        sha.update(&buffer[..read]);
+        md5_hash.update(&buffer[..read]);
         total += read as u64;
     }
     file.sync_all()
         .map_err(|source| Error::io("sync download", source))?;
-    Ok((total, hex::encode(hasher.finalize())))
+    Ok((
+        total,
+        hex::encode(sha.finalize()),
+        hex::encode(md5_hash.finalize()),
+    ))
 }
 
 #[cfg(test)]

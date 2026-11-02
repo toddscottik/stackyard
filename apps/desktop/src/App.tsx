@@ -3,6 +3,7 @@ import {
   api,
   engineAvailable,
   errorText,
+  formatProgress,
   type CatalogItem,
   type Installed,
   type Databases,
@@ -204,11 +205,14 @@ export function App() {
           {section === "databases" ? (
             <DatabasesScreen
               databases={databases}
+              packages={packages}
+              catalog={catalog}
               projects={projects}
               desktop={desktop}
               onDatabases={setDatabases}
               onError={report}
               onProgress={setProgress}
+              onRefresh={() => refresh().catch(report)}
             />
           ) : null}
           {section === "settings" ? (
@@ -943,21 +947,28 @@ async function dependency(
 
 function DatabasesScreen({
   databases,
+  packages,
+  catalog,
   projects,
   desktop,
   onDatabases,
   onError,
   onProgress,
+  onRefresh,
 }: {
   databases: Databases | null;
+  packages: Installed[];
+  catalog: CatalogItem[];
   projects: Project[];
   desktop: boolean;
   onDatabases: (view: Databases) => void;
   onError: (err: unknown) => void;
   onProgress: (text: string) => void;
+  onRefresh: () => void;
 }) {
   const [engine, setEngine] = useState("mysql");
   const [port, setPort] = useState("");
+  const [download, setDownload] = useState<Operation | null>(null);
   const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
   const [host, setHost] = useState("127.0.0.1");
   const [attachPort, setAttachPort] = useState("13306");
@@ -1038,7 +1049,47 @@ function DatabasesScreen({
               onError("Database port must be empty or a high port.");
               return;
             }
-            void run("Creating database instance…", () => api.createDatabase(engine, chosen));
+            void run("Creating database instance…", async () => {
+              try {
+              let recorded = packages.find((item) => item.name === engine);
+              if (!recorded) {
+                const item = catalog.find((entry) => entry.name === engine);
+                if (!item) {
+                  throw new Error(`No ${engine} package is published for this machine.`);
+                }
+                onProgress(`Installing ${item.name} ${item.version}…`);
+                let current = await api.startInstall(item.id);
+                setDownload(current);
+                for (let attempt = 0; attempt < 1200 && current.state === "running"; attempt += 1) {
+                  await delay(500);
+                  current = await api.installStatus(current.id);
+                  setDownload(current);
+                  onProgress(
+                    `Installing ${item.name} ${item.version}… ${formatProgress(current.bytes, current.total)}`,
+                  );
+                }
+                setDownload(null);
+                if (current.state !== "succeeded" && !current.message.includes("already installed")) {
+                  throw new Error(current.message || "the database server install did not finish");
+                }
+                recorded = {
+                  id: item.id,
+                  name: item.name,
+                  source: "managed",
+                  version: item.version,
+                  path: "",
+                  launch: "",
+                };
+              }
+              await api.selectPackage("default", recorded.id);
+              onProgress("Creating database instance…");
+              const view = await api.createDatabase(engine, chosen);
+              onRefresh();
+              return view;
+              } finally {
+                setDownload(null);
+              }
+            });
           }}
         >
           <div className="field">
@@ -1048,6 +1099,12 @@ function DatabasesScreen({
               <option value="postgres">PostgreSQL</option>
             </select>
           </div>
+          <p className="hint">
+            {packages.some((item) => item.name === engine)
+              ? `Using the recorded ${engine} server. The new instance gets its own data directory.`
+              : `Create downloads ${engine === "mysql" ? "MySQL 8.4" : "PostgreSQL 18"} into Stackyard, then starts a private instance. It does not register a Windows service.`}
+          </p>
+          {download ? <InstallProgress operation={download} /> : null}
           <div className="field">
             <label htmlFor="db-port">Port</label>
             <input
@@ -1263,7 +1320,9 @@ function Components({
         await delay(500);
         current = await api.installStatus(current.id);
         setOperation(current);
-        onProgress(`${item.name}: ${current.message || current.state}`);
+        onProgress(
+          `Installing ${item.name} ${item.version}… ${formatProgress(current.bytes, current.total)}`,
+        );
       }
       onProgress("");
       if (current.state !== "succeeded") {
@@ -1323,16 +1382,14 @@ function Components({
             </div>
           )}
           {operation ? (
-            <p className="progress" role="status">
-              <span>
-                {operation.state}: {operation.message} ({operation.bytes} bytes)
-              </span>
-              {operation.state === "running" ? (
-                <button type="button" className="btn ghost" onClick={() => void api.cancelInstall(operation.id).then(setOperation).catch(onError)}>
-                  Cancel install
-                </button>
-              ) : null}
-            </p>
+            <InstallProgress
+              operation={operation}
+              onCancel={
+                operation.state === "running"
+                  ? () => void api.cancelInstall(operation.id).then(setOperation).catch(onError)
+                  : undefined
+              }
+            />
           ) : null}
           <h2>Use existing</h2>
           <p className="hint">Recording does not copy or upgrade that installation.</p>
@@ -1566,6 +1623,38 @@ function Settings({
         )}
       </section>
     </>
+  );
+}
+
+function InstallProgress({ operation, onCancel }: { operation: Operation; onCancel?: () => void }) {
+  const known = operation.total > 0;
+  const width = known ? Math.min(100, (operation.bytes / operation.total) * 100) : undefined;
+  const label = formatProgress(operation.bytes, operation.total);
+  return (
+    <div className="progress install-progress" role="status">
+      <div className="install-progress-head">
+        <span>
+          {operation.state === "running" ? "Downloading" : operation.state}
+          {operation.message && operation.state !== "running" ? `: ${operation.message}` : ""}
+        </span>
+        <span className="mono">{label}</span>
+        {onCancel ? (
+          <button type="button" className="btn ghost" onClick={onCancel}>
+            Cancel install
+          </button>
+        ) : null}
+      </div>
+      <div
+        className="meter"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={known ? operation.total : undefined}
+        aria-valuenow={operation.bytes}
+        aria-label={label}
+      >
+        <span className={known ? "meter-bar" : "meter-bar indeterminate"} style={known ? { width: `${width}%` } : undefined} />
+      </div>
+    </div>
   );
 }
 

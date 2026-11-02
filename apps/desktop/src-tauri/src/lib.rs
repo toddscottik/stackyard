@@ -45,7 +45,8 @@ pub fn run() {
             commands::sqlite_use,
             commands::list_updates,
             commands::cleanup_unused,
-            commands::export_diagnostics
+            commands::export_diagnostics,
+            commands::discover_runtimes
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Show Stackyard", true, None::<&str>)?;

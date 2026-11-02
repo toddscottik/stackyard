@@ -45,8 +45,31 @@ export type Operation = {
   catalogId: string;
   state: string;
   bytes: number;
+  total: number;
   message: string;
 };
+
+export function formatSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = unit === 0 || value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(digits)} ${units[unit]}`;
+}
+
+export function formatProgress(bytes: number, total: number): string {
+  if (total > 0) {
+    return `${formatSize(bytes)} / ${formatSize(total)}`;
+  }
+  return formatSize(bytes);
+}
 export type Task = { id: string; label: string; state: string; message: string };
 export type FrontSite = {
   projectId: string;
@@ -141,6 +164,7 @@ export const api = {
   unpublish: (projectId: string) => invoke<Front>("unpublish_project", { projectId }),
   restartFront: () => invoke<Front>("restart_front"),
   openSite: (url: string) => invoke<void>("open_site", { url }),
+  discover: () => invoke<Array<{ role: string; path: string }>>("discover_runtimes"),
   databases: () => invoke<Databases>("databases_status"),
   createDatabase: (engine: string, port: number) => invoke<Databases>("database_create", { engine, port }),
   startDatabase: (instanceId: string) => invoke<Databases>("database_start", { instanceId }),

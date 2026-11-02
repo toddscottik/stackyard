@@ -2,7 +2,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use stackyard_core::{default_data_dir, ensure_engine, roundtrip};
+use stackyard_core::{default_data_dir, ensure_engine, roundtrip, roundtrip_within};
 use stackyard_core::{Command, Outcome};
 
 #[tokio::main]
@@ -669,7 +669,7 @@ async fn db_command(data_dir: &std::path::Path, args: &[String]) -> stackyard_co
             ))
         }
     };
-    print_outcome(&roundtrip(&dir, command).await?);
+    print_outcome(&roundtrip_within(&dir, command, std::time::Duration::from_secs(180)).await?);
     Ok(())
 }
 
@@ -787,12 +787,14 @@ fn print_outcome(outcome: &Outcome) {
             catalog_id,
             state,
             bytes,
+            total,
             message,
         } => {
             println!("operation: {id}");
             println!("catalog_id: {catalog_id}");
             println!("state: {state}");
             println!("bytes: {bytes}");
+            println!("total: {total}");
             println!("message: {message}");
         }
         Outcome::Project { project } => print_project(project),

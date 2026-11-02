@@ -12,7 +12,7 @@ This is the personal-release list as of 1 November 2026. It is not a claim that 
 ## Packages
 
 - The runnable catalog is Windows-only and still the Stage 0 pins. No second digest-checked Node or Python version has been added, so a newer runtime was not downloaded.
-- MySQL 8.4.13 is MD5-only and is not in the catalog.
+- MySQL 8.4.13 is in the Windows catalog. The publisher ships an MD5 sidecar and no SHA256, so that entry is checked with the published MD5.
 - The Windows Apache and PostgreSQL catalog entries were checked in Stage 0 and were not launched again from the catalog in later stages.
 - `uv` was not on the Linux machine used for the Stage 8 fixture check, so the uv path was not run there. Windows uv 0.13.6 was checked in Stage 2.
 

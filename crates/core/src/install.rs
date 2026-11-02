@@ -16,6 +16,7 @@ pub const DEFAULT_PROJECT: &str = "default";
 #[derive(Debug, Clone)]
 pub struct Progress {
     pub bytes: Arc<AtomicU64>,
+    pub total: Arc<AtomicU64>,
     pub cancel: Arc<AtomicBool>,
 }
 
@@ -23,6 +24,7 @@ impl Progress {
     pub fn new() -> Self {
         Self {
             bytes: Arc::new(AtomicU64::new(0)),
+            total: Arc::new(AtomicU64::new(0)),
             cancel: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -72,7 +74,7 @@ pub fn install_reader<R: Read>(
         &payload,
         &|| progress.cancelled(),
     );
-    let (_size, digest) = match read {
+    let (_size, sha256, md5) = match read {
         Ok(value) => value,
         Err(err) => {
             let _ = fs::remove_dir_all(&incoming);
@@ -84,11 +86,22 @@ pub fn install_reader<R: Read>(
             });
         }
     };
-    if !digest.eq_ignore_ascii_case(&package.sha256) {
+    let (expected, digest) = if !package.sha256.is_empty() {
+        (package.sha256.clone(), sha256)
+    } else if !package.md5.is_empty() {
+        (package.md5.clone(), md5)
+    } else {
+        let _ = fs::remove_dir_all(&incoming);
+        return Err(Error::InvalidMessage(format!(
+            "catalog package {} has no digest",
+            package.id
+        )));
+    };
+    if !digest.eq_ignore_ascii_case(&expected) {
         let _ = fs::remove_dir_all(&incoming);
         return Err(Error::DigestMismatch {
             id: package.id.clone(),
-            expected: package.sha256.clone(),
+            expected,
             actual: digest,
         });
     }
@@ -171,6 +184,12 @@ pub fn download_and_install(
         .set("user-agent", "stackyard/0.1")
         .call()
         .map_err(|err| Error::InvalidMessage(format!("download {}: {err}", package.url)))?;
+    if let Some(total) = response
+        .header("Content-Length")
+        .and_then(|value| value.trim().parse::<u64>().ok())
+    {
+        progress.total.store(total, Ordering::Relaxed);
+    }
     install_reader(data_dir, package, response.into_reader(), progress)
 }
 
@@ -296,16 +315,51 @@ pub fn probe_tool(launch: &Path, args: &[String], runtime_dir: Option<&Path>) ->
 pub fn discover_candidates() -> Vec<(String, PathBuf)> {
     let mut found = Vec::new();
     if cfg!(windows) {
-        let node = PathBuf::from(r"C:\Program Files\nodejs\node.exe");
-        let python = PathBuf::from(r"C:\Python\Python312\python.exe");
-        if node.is_file() {
-            found.push(("node".to_string(), node));
+        push_file(
+            &mut found,
+            "node",
+            PathBuf::from(r"C:\Program Files\nodejs\node.exe"),
+        );
+        push_file(
+            &mut found,
+            "python",
+            PathBuf::from(r"C:\Python\Python312\python.exe"),
+        );
+        for root in [
+            r"C:\xampp",
+            r"C:\XAMPP",
+            r"D:\xampp",
+            r"D:\XAMPP",
+            r"D:\_work\XAMPP",
+        ] {
+            push_file(
+                &mut found,
+                "mysql",
+                PathBuf::from(root).join(r"mysql\bin\mysqld.exe"),
+            );
         }
-        if python.is_file() {
-            found.push(("python".to_string(), python));
+        if let Ok(entries) = fs::read_dir(r"C:\Program Files\MySQL") {
+            for entry in entries.flatten() {
+                push_file(&mut found, "mysql", entry.path().join(r"bin\mysqld.exe"));
+            }
+        }
+        if let Ok(entries) = fs::read_dir(r"C:\Program Files\PostgreSQL") {
+            for entry in entries.flatten() {
+                push_file(
+                    &mut found,
+                    "postgres",
+                    entry.path().join(r"bin\postgres.exe"),
+                );
+            }
         }
     }
     found
+}
+
+fn push_file(found: &mut Vec<(String, PathBuf)>, role: &str, path: PathBuf) {
+    if path.is_file() {
+        found.push((role.to_string(), path));
+    }
 }
 
 fn storage_root(data_dir: &Path, kind: &str) -> PathBuf {
@@ -429,6 +483,7 @@ mod tests {
             format: "zip".to_string(),
             url: "https://example.invalid/fixture.zip".to_string(),
             sha256: sha.to_string(),
+            md5: String::new(),
             digest_source: "test".to_string(),
             launch: "payload.txt".to_string(),
             version_args: vec!["-v".to_string()],

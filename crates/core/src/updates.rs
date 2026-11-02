@@ -341,6 +341,7 @@ mod tests {
             format: "zip".to_string(),
             url: "https://example.invalid/package.zip".to_string(),
             sha256: "ab".repeat(32),
+            md5: String::new(),
             digest_source: "test".to_string(),
             launch: "launch".to_string(),
             version_args: vec!["-v".to_string()],

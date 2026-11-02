@@ -386,13 +386,24 @@ fn start_install(jobs: &Arc<Jobs>, data_dir: &Path, catalog_id: &str) -> Result<
     }
     let package = find_package(catalog_id)?;
     mark_install_running(data_dir, &package.id)?;
-    let (id, bytes, cancel) = jobs.start(package.id.clone());
-    let progress = Progress { bytes, cancel };
+    let (id, bytes, total, cancel) = jobs.start(package.id.clone());
+    let progress = Progress {
+        bytes,
+        total,
+        cancel,
+    };
     let jobs_for_task = Arc::clone(jobs);
     let operation_id = id.clone();
     let directory = data_dir.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let result = download_and_install(&directory, &package, &progress);
+        if result.is_ok() && (package.name == "mysql" || package.name == "postgres") {
+            if let Err(err) =
+                select_for_project(&directory, stackyard_core::DEFAULT_PROJECT, &package.id)
+            {
+                eprintln!("database server was installed but not selected: {err}");
+            }
+        }
         if result.is_ok() && package.name == "node" {
             if let Err(err) = ensure_default_node_manager(&directory) {
                 eprintln!("pnpm was not installed with Node: {err}");
@@ -417,6 +428,7 @@ fn operation_outcome(jobs: &Jobs, id: &str) -> Result<Outcome> {
         catalog_id: operation.catalog_id,
         state: operation.state,
         bytes: operation.bytes.load(std::sync::atomic::Ordering::Relaxed),
+        total: operation.total.load(std::sync::atomic::Ordering::Relaxed),
         message: operation.message,
     })
 }

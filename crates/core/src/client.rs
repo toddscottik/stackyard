@@ -40,13 +40,23 @@ pub async fn ensure_engine(data_dir: &Path) -> Result<PathBuf> {
 }
 
 pub async fn roundtrip(data_dir: &Path, cmd: EngineCommand) -> Result<Outcome> {
+    roundtrip_within(data_dir, cmd, CALL_TIMEOUT).await
+}
+
+/// Same as [`roundtrip`], with a caller-chosen wait. Database initialization
+/// can outlast the short status timeout.
+pub async fn roundtrip_within(
+    data_dir: &Path,
+    cmd: EngineCommand,
+    limit: Duration,
+) -> Result<Outcome> {
     let data_dir = prepare_data_dir(data_dir)?;
     let request = Request {
         v: API_VERSION,
         id: next_request_id(),
         cmd,
     };
-    let response = timeout(CALL_TIMEOUT, call(&data_dir, &request))
+    let response = timeout(limit, call(&data_dir, &request))
         .await
         .map_err(|_| Error::Timeout {
             data_dir: data_dir.clone(),

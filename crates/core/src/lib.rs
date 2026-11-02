@@ -29,7 +29,7 @@ pub use apache::{
     DEFAULT_HTTP_PORT, HOSTS_MARK, RESTART_IMPACT, TRUST_FILE,
 };
 pub use catalog::{catalog_for_host, current_target, find_package, CatalogPackage};
-pub use client::{ensure_engine, roundtrip};
+pub use client::{ensure_engine, roundtrip, roundtrip_within};
 pub use database::{
     contained_sqlite, random_secret, read_secret, redact, require_empty_data_dir, require_ident,
     sqlite_backup, sqlite_init, sqlite_read, sqlite_write, write_secret, DEFAULT_MYSQL_PORT,

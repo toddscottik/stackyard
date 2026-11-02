@@ -237,6 +237,7 @@ pub enum Outcome {
         catalog_id: String,
         state: String,
         bytes: u64,
+        total: u64,
         message: String,
     },
     Project {

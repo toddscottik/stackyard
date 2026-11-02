@@ -87,12 +87,12 @@ impl Databases {
         let id = format!("{engine}-{port}");
         let root = self.data_dir.join("databases").join(&id);
         let data = root.join("data");
+        let server = self.server_binary(engine)?;
         require_empty_data_dir(&data)?;
         fs::create_dir_all(&root)
             .map_err(|source| Error::io("create database directory", source))?;
         let secret = random_secret()?;
         let secret_path = write_secret(&self.data_dir.join("secrets"), &id, &secret)?;
-        let server = self.server_binary(engine)?;
         if engine == "mysql" {
             init_mysql(&server, &data)?;
         } else {
@@ -611,8 +611,13 @@ impl Databases {
     fn server_binary(&self, engine: &str) -> Result<PathBuf> {
         let store = Store::open(&self.data_dir)?;
         let Some(id) = store.get_selection(stackyard_core::DEFAULT_PROJECT, engine)? else {
-            return Err(Error::InvalidMessage(format!(
-                "no {engine} server is selected. Record the existing server binary first"
+            let detail = if engine == "mysql" {
+                "Install MySQL from the catalog first."
+            } else {
+                "Install PostgreSQL from the catalog first."
+            };
+            return Err(Error::OperationFailed(format!(
+                "no {engine} server is selected. {detail}"
             )));
         };
         let package = store
@@ -880,5 +885,26 @@ fn command_ok(name: &str, output: &std::process::Output, secret: &str) -> Result
         Ok(text)
     } else {
         Err(Error::InvalidMessage(format!("{name} failed: {text}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_without_a_server_leaves_no_directory() {
+        let dir = stackyard_core::prepare_data_dir(&stackyard_core::disposable_dir("db-missing"))
+            .expect("data dir");
+        let databases = Databases::new(dir.clone());
+        let message = databases
+            .create("mysql", 13306)
+            .expect_err("missing server")
+            .to_string();
+        assert!(message.contains("no mysql server is selected"), "{message}");
+        assert!(!message.contains("engine reply was not valid"), "{message}");
+        assert!(!dir.join("databases").exists());
+        assert!(!dir.join("secrets").exists());
+        let _ = fs::remove_dir_all(dir);
     }
 }

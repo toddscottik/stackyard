@@ -28,7 +28,10 @@ pub struct CatalogPackage {
     pub target: String,
     pub format: String,
     pub url: String,
+    #[serde(default)]
     pub sha256: String,
+    #[serde(default)]
+    pub md5: String,
     pub digest_source: String,
     pub launch: String,
     pub version_args: Vec<String>,
@@ -89,9 +92,16 @@ mod tests {
         assert!(catalog.revision >= 1);
         assert!(!catalog.packages.is_empty());
         for package in &catalog.packages {
-            assert_eq!(package.sha256.len(), 64);
-            assert!(package.sha256.chars().all(|c| c.is_ascii_hexdigit()));
+            let sha256 = package.sha256.len() == 64
+                && package.sha256.chars().all(|c| c.is_ascii_hexdigit());
+            let md5 = package.md5.len() == 32 && package.md5.chars().all(|c| c.is_ascii_hexdigit());
+            assert!(
+                sha256 || md5,
+                "{} needs a publisher sha256 or md5",
+                package.id
+            );
             assert!(package.url.starts_with("https://"));
+            assert!(package.digest_source.starts_with("https://"));
             assert!(!package.launch.is_empty());
             assert!(!package.id.contains('/') && !package.id.contains('\\'));
         }
@@ -105,6 +115,8 @@ mod tests {
         if host == "windows-x64" {
             assert!(packages.iter().any(|package| package.name == "node"));
             assert!(packages.iter().any(|package| package.name == "python"));
+            assert!(packages.iter().any(|package| package.name == "mysql"));
+            assert!(packages.iter().any(|package| package.name == "postgres"));
         }
     }
 }

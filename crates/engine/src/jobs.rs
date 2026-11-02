@@ -9,6 +9,7 @@ pub struct Operation {
     pub catalog_id: String,
     pub state: String,
     pub bytes: Arc<AtomicU64>,
+    pub total: Arc<AtomicU64>,
     pub cancel: Arc<AtomicBool>,
     pub message: String,
 }
@@ -37,14 +38,19 @@ impl Jobs {
         })
     }
 
-    pub fn start(&self, catalog_id: String) -> (String, Arc<AtomicU64>, Arc<AtomicBool>) {
+    pub fn start(
+        &self,
+        catalog_id: String,
+    ) -> (String, Arc<AtomicU64>, Arc<AtomicU64>, Arc<AtomicBool>) {
         let id = self.next.fetch_add(1, Ordering::Relaxed).to_string();
         let bytes = Arc::new(AtomicU64::new(0));
+        let total = Arc::new(AtomicU64::new(0));
         let cancel = Arc::new(AtomicBool::new(false));
         let operation = Operation {
             catalog_id,
             state: "running".to_string(),
             bytes: Arc::clone(&bytes),
+            total: Arc::clone(&total),
             cancel: Arc::clone(&cancel),
             message: "downloading".to_string(),
         };
@@ -52,7 +58,7 @@ impl Jobs {
             .lock()
             .expect("install jobs")
             .insert(id.clone(), operation);
-        (id, bytes, cancel)
+        (id, bytes, total, cancel)
     }
 
     pub fn finish(&self, id: &str, result: std::result::Result<PackageRecord, Error>) {

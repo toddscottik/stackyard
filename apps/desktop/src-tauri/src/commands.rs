@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use serde::Serialize;
-use stackyard_core::{default_data_dir, ensure_engine, roundtrip, Command, Outcome};
+use std::time::Duration;
+
+use stackyard_core::{default_data_dir, ensure_engine, roundtrip_within, Command, Outcome};
 use tauri::{AppHandle, Manager};
 
 use crate::open::{
@@ -16,8 +18,12 @@ async fn engine_dir() -> Result<PathBuf, String> {
 }
 
 async fn call(command: Command) -> Result<Outcome, String> {
+    call_within(command, Duration::from_secs(5)).await
+}
+
+async fn call_within(command: Command, limit: Duration) -> Result<Outcome, String> {
     let dir = engine_dir().await?;
-    roundtrip(&dir, command)
+    roundtrip_within(&dir, command, limit)
         .await
         .map_err(|err| err.to_string())
 }
@@ -91,6 +97,7 @@ pub struct OperationView {
     catalog_id: String,
     state: String,
     bytes: u64,
+    total: u64,
     message: String,
 }
 
@@ -239,12 +246,14 @@ fn operation(outcome: Outcome) -> Result<OperationView, String> {
             catalog_id,
             state,
             bytes,
+            total,
             message,
         } => Ok(OperationView {
             id,
             catalog_id,
             state,
             bytes,
+            total,
             message,
         }),
         other => Err(format!("unexpected engine reply: {other:?}")),
@@ -622,12 +631,33 @@ pub async fn databases_status() -> Result<DatabasesView, String> {
 
 #[tauri::command]
 pub async fn database_create(engine: String, port: u16) -> Result<DatabasesView, String> {
-    databases_view(call(Command::DbCreate { engine, port }).await?)
+    databases_view(call_within(Command::DbCreate { engine, port }, Duration::from_secs(180)).await?)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveredView {
+    role: String,
+    path: String,
+}
+
+#[tauri::command]
+pub async fn discover_runtimes() -> Result<Vec<DiscoveredView>, String> {
+    match call(Command::Discover).await? {
+        Outcome::Discovered { items } => Ok(items
+            .into_iter()
+            .map(|item| DiscoveredView {
+                role: item.role,
+                path: item.path,
+            })
+            .collect()),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
 }
 
 #[tauri::command]
 pub async fn database_start(instance_id: String) -> Result<DatabasesView, String> {
-    databases_view(call(Command::DbStart { instance_id }).await?)
+    databases_view(call_within(Command::DbStart { instance_id }, Duration::from_secs(180)).await?)
 }
 
 #[tauri::command]
