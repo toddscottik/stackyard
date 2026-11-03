@@ -92,8 +92,8 @@ mod tests {
         assert!(catalog.revision >= 1);
         assert!(!catalog.packages.is_empty());
         for package in &catalog.packages {
-            let sha256 = package.sha256.len() == 64
-                && package.sha256.chars().all(|c| c.is_ascii_hexdigit());
+            let sha256 =
+                package.sha256.len() == 64 && package.sha256.chars().all(|c| c.is_ascii_hexdigit());
             let md5 = package.md5.len() == 32 && package.md5.chars().all(|c| c.is_ascii_hexdigit());
             assert!(
                 sha256 || md5,
@@ -117,6 +117,17 @@ mod tests {
             assert!(packages.iter().any(|package| package.name == "python"));
             assert!(packages.iter().any(|package| package.name == "mysql"));
             assert!(packages.iter().any(|package| package.name == "postgres"));
+        }
+        if host == "macos-arm64" {
+            for name in ["node", "python", "uv", "pnpm"] {
+                assert!(
+                    packages.iter().any(|package| package.name == name),
+                    "missing {name}"
+                );
+            }
+            assert!(packages.iter().all(|package| package.name != "apache"
+                && package.name != "mysql"
+                && package.name != "postgres"));
         }
     }
 }

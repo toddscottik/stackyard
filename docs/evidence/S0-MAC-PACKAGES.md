@@ -2,20 +2,18 @@
 
 Date fetched: 31 October 2026.
 
-Named target: MacBook M1 Pro, 16 GB, macOS 14.5 arm64. That machine is available for later testing. It is not the machine that ran this task.
+Named target: MacBook M1 Pro, 16 GB, macOS 14.5 arm64.
 
-This task ran on Windows. It re-fetched publisher metadata and wrote a smoke script. It did not launch any macOS artifact, did not compare a downloaded Mac payload to its digest, and did not approve anything for the runnable catalog. Metadata re-fetched and launched are different states. Every execution cell below is pending.
-
-Small checksum and HTML/JSON documents were fetched. Mac binaries were not downloaded. The Node tarball, uv archive, CPython archive, pnpm archive, and PostgreSQL zip were not saved to disk.
+The 31 October 2026 pass ran on Windows. It re-fetched publisher metadata and wrote the smoke script. It did not launch any macOS artifact. The 3 November 2026 pass on this Mac downloaded Node, uv, CPython, and pnpm, matched the pins, and launched them. Those four are in the runnable catalog. Apache, MySQL, and PostgreSQL stay blocked. See "Execution on the M1 Pro" below.
 
 ## Matrix
 
 | Component | Target | URL | Digest and source | Execution | Packaging decision |
 | --- | --- | --- | --- | --- | --- |
-| Node.js 24.22.2 | macOS 14.5 arm64 | `https://nodejs.org/dist/v24.22.2/node-v24.22.2-darwin-arm64.tar.gz` | `aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a` from `https://nodejs.org/dist/v24.22.2/SHASUMS256.txt` | Pending: not run on macOS 14.5 | Metadata re-fetched from the immutable version directory. Payload not downloaded. Candidate only after the Mac checksum and launch probes. |
-| uv 0.13.6 | macOS 14.5 arm64 | `https://github.com/astral-sh/uv/releases/download/0.13.6/uv-aarch64-apple-darwin.tar.gz` | `60fbd5c8a1ed681845eea28d9d622fcde03c51e91a43465b64a1e17db1ed3472` from `uv-aarch64-apple-darwin.tar.gz.sha256` and the matching `sha256.sum` line on the 0.13.6 release | Pending: not run on macOS 14.5 | Metadata re-fetched. Payload not downloaded (release API size 14235670 bytes). Candidate only after the Mac probes. |
-| CPython 3.12.16 build 20261026 | macOS 14.5 arm64 | `https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-aarch64-apple-darwin-install_only_stripped.tar.gz` | `353d5f1b4fd2715e7053f12f068435d5bbad16b91e057006b5d01e0925709a7e` from release `SHA256SUMS` for `cpython-3.12.16+20261026-aarch64-apple-darwin-install_only_stripped.tar.gz` | Pending: not run on macOS 14.5 | Metadata re-fetched. Payload not downloaded (release API size 25035343 bytes). Candidate only after the Mac probes. |
-| pnpm 12.16.1 | macOS 14.5 arm64 | `https://github.com/pnpm/pnpm/releases/download/v12.16.1/pnpm-darwin-arm64.tar.gz` | `6661212a6ec725634b0d3268e5bc9408e3152506dab5997891e38fa1ef22bf9c` from the GitHub release asset `digest` field on tag `v12.16.1` | Pending: not run on macOS 14.5 | Metadata re-fetched. The release asset list and notes contain no maintainer SHA256SUMS file. Payload not downloaded (API size 22403634 bytes). Candidate only after the Mac probes. |
+| Node.js 24.22.2 | macOS 14.5 arm64 | `https://nodejs.org/dist/v24.22.2/node-v24.22.2-darwin-arm64.tar.gz` | `aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a` from `https://nodejs.org/dist/v24.22.2/SHASUMS256.txt` | 3 November 2026: payload matched the pin, printed `v24.22.2 darwin arm64`, and bound `127.0.0.1:18080` | Accepted for the macOS arm64 catalog entry `node-24.22.2-macos-arm64`. |
+| uv 0.13.6 | macOS 14.5 arm64 | `https://github.com/astral-sh/uv/releases/download/0.13.6/uv-aarch64-apple-darwin.tar.gz` | `60fbd5c8a1ed681845eea28d9d622fcde03c51e91a43465b64a1e17db1ed3472` from `uv-aarch64-apple-darwin.tar.gz.sha256` and the matching `sha256.sum` line on the 0.13.6 release | 3 November 2026: payload matched the pin and printed `uv 0.13.6 (329bf9448 2026-10-26 aarch64-apple-darwin)` | Accepted for the macOS arm64 catalog entry `uv-0.13.6-macos-arm64`. |
+| CPython 3.12.16 build 20261026 | macOS 14.5 arm64 | `https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-aarch64-apple-darwin-install_only_stripped.tar.gz` | `353d5f1b4fd2715e7053f12f068435d5bbad16b91e057006b5d01e0925709a7e` from release `SHA256SUMS` for `cpython-3.12.16+20261026-aarch64-apple-darwin-install_only_stripped.tar.gz` | 3 November 2026: payload matched the pin. `python3` reported 3.12.16, arm64, OpenSSL 3.5.9, SQLite 3.53.1. A disposable venv reported pip 26.2.2 | Accepted for the macOS arm64 catalog entry `cpython-3.12.16-macos-arm64`. |
+| pnpm 12.16.1 | macOS 14.5 arm64 | `https://github.com/pnpm/pnpm/releases/download/v12.16.1/pnpm-darwin-arm64.tar.gz` | `6661212a6ec725634b0d3268e5bc9408e3152506dab5997891e38fa1ef22bf9c` from the GitHub release asset `digest` field on tag `v12.16.1` | 3 November 2026: the release API digest matched the pin, the payload matched that digest, and `pnpm --version` printed `12.16.1` | Accepted for the macOS arm64 catalog entry `pnpm-12.16.1-macos-arm64`. |
 | Apache httpd | macOS 14.5 arm64 | unresolved | unresolved | Pending: not run on macOS 14.5 | Blocked. No official relocatable arm64 archive. Packaging gate below. Homebrew bottles are not a managed-download provider. |
 | MySQL 8.4 | macOS 14.5 arm64 | unresolved | unresolved | Pending: not run on macOS 14.5 | Blocked. Platform policy does not name 14.5. The downloads selector was not completed, so no tarball or DMG URL is recorded. MariaDB was not substituted. |
 | PostgreSQL 18.6 | macOS 14.5 arm64 | `https://get.enterprisedb.com/postgresql/postgresql-18.6-5-osx-binaries.zip` | unresolved | Pending: not run on macOS 14.5 | Blocked. The publisher exposes this Mac OS X zip and no digest. The filename does not say arm64. Download stays disabled until a digest is published. |
@@ -106,8 +104,7 @@ Homebrew’s current bottles are rejected for the same reason: absolute cellar `
 - The script refuses to claim success unless `uname` is Darwin arm64 and `sw_vers` ProductVersion is `14.5` or `14.5.x`.
 - It does not call `launchctl`, does not edit `/etc/hosts`, and does not use `sudo`.
 - `probe-apache` and `probe-mysql` exit 4 with the URL unresolved. `probe-postgres` exits 3 because the zip has no published digest. Those commands do not listen.
-- Header comments state that macOS execution has not been run and that verification on the M1 Pro is pending.
-- Probe stdout includes `catalog=not-approved`. A future Mac probe log is still not catalog acceptance.
+- Probe stdout still includes `catalog=not-approved`. Catalog acceptance is the entry in `catalog/packages.json`, written after the 3 November 2026 launch.
 
 ## Checks run from Windows
 
@@ -123,10 +120,20 @@ These checks did not run on macOS 14.5. They are not a macOS pass.
 | `packages.sh probe-mysql` | same | 4 | `url=unresolved`. |
 | `packages.sh probe-postgres` | same | 3 | URL printed, `digest=unresolved`, no download. |
 
+## Execution on the M1 Pro
+
+3 November 2026. Host: Darwin arm64, macOS 14.5 (23F79), `rustc 1.99.1`. Artifact root: `.artifacts/S0-MAC-PACKAGES`. Commands: `packages.sh checksum-compare`, then `probe-node`, `probe-uv`, `probe-python`, and `probe-pnpm`.
+
+Node, uv, and CPython publisher checksums matched the 31 October pins and the downloaded payloads. The first pnpm API parse looked only a short distance past the asset name and missed the digest, which sits after the uploader object in the pretty-printed release JSON. The parser now reads forward to that asset's digest. It reproduced `6661212a6ec725634b0d3268e5bc9408e3152506dab5997891e38fa1ef22bf9c`, and the payload matched.
+
+Launch results: Node `v24.22.2 darwin arm64` with `listen=127.0.0.1:18080`; uv `0.13.6` `aarch64-apple-darwin`; CPython 3.12.16 arm64 with OpenSSL 3.5.9, SQLite 3.53.1, and pip 26.2.2 in a disposable venv; pnpm `12.16.1`.
+
+The engine tar extractor rejected symlink and hard-link members and did not restore executable mode. CPython's `python3` is a symlink to `python3.12`, Node's `npm` is a symlink, and the pnpm archive hard-links files under `dist/`. Extraction now keeps a relative symlink or hard link whose target stays inside the archive and applies the tar mode on Unix. A disposable install of the four checked payloads launched Node (including npm), CPython, uv, and pnpm.
+
 ## Limitations
 
-- No process was started on the MacBook M1 Pro. Launch, relocation, paths with spaces, occupied ports, and cleanup are pending on macOS 14.5 arm64.
-- Publisher checksum files were fetched. Payload bytes were not hashed locally. Signatures and publisher keys were not checked.
+- Relocation, paths with spaces, occupied ports, and cleanup of these four packages through the desktop are still open on this Mac.
+- Signatures and publisher keys were not checked. Payload SHA256 was checked.
 - pnpm’s digest is GitHub’s release-asset digest, not a checksum file published inside the pnpm release.
 - MySQL’s macOS archive URL stays unresolved until the operating-system selector can be completed.
 - PostgreSQL’s zip URL is known and its digest is not. The archive was not opened, so its CPU architecture is unverified.

@@ -136,7 +136,9 @@ pub fn install_reader<R: Read>(
         version: package.version.clone(),
         target: package.target.clone(),
         source: "managed".to_string(),
-        path: crate::paths::plain_path(final_dir.clone()).display().to_string(),
+        path: crate::paths::plain_path(final_dir.clone())
+            .display()
+            .to_string(),
         launch: crate::paths::plain_path(final_dir.join(&package.launch))
             .display()
             .to_string(),
@@ -567,5 +569,80 @@ mod tests {
         };
         store.insert_package(&record).expect("insert");
         record
+    }
+
+    #[test]
+    fn checked_macos_archives_install_and_launch() {
+        if crate::catalog::current_target() != "macos-arm64" {
+            return;
+        }
+        let downloads = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.artifacts/S0-MAC-PACKAGES/downloads");
+        let cases = [
+            (
+                "node-24.22.2-macos-arm64",
+                "node-v24.22.2-darwin-arm64.tar.gz",
+            ),
+            (
+                "cpython-3.12.16-macos-arm64",
+                "cpython-3.12.16+20261026-aarch64-apple-darwin-install_only_stripped.tar.gz",
+            ),
+            ("uv-0.13.6-macos-arm64", "uv-aarch64-apple-darwin.tar.gz"),
+            ("pnpm-12.16.1-macos-arm64", "pnpm-darwin-arm64.tar.gz"),
+        ];
+        let mut ran = 0;
+        for (id, filename) in cases {
+            let archive = downloads.join(filename);
+            if !archive.is_file() {
+                continue;
+            }
+            ran += 1;
+            let package = crate::catalog::find_package(id).expect(id);
+            let dir = temp_dir();
+            let file = fs::File::open(&archive).expect("payload");
+            let installed =
+                install_reader(&dir, &package, file, &Progress::new()).unwrap_or_else(|err| {
+                    panic!("{id} install failed: {err}");
+                });
+            let output = Command::new(&installed.launch)
+                .args(&package.version_args)
+                .output()
+                .unwrap_or_else(|err| panic!("{id} launch failed: {err}"));
+            assert!(
+                output.status.success(),
+                "{id} status {:?} {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let text = String::from_utf8_lossy(&output.stdout);
+            let expected = package
+                .version
+                .split('+')
+                .next()
+                .unwrap_or(&package.version);
+            assert!(text.contains(expected), "{id} printed {text:?}");
+            if package.name == "node" {
+                let (program, mut args) =
+                    crate::project::npm_launch(Path::new(&installed.launch)).expect("npm");
+                args.push("--version".to_string());
+                let npm = Command::new(program).args(args).output().expect("npm");
+                assert!(
+                    npm.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&npm.stderr)
+                );
+            }
+            if package.name == "python" {
+                let venv =
+                    PathBuf::from(&installed.path).join("python/lib/python3.12/venv/__init__.py");
+                assert!(venv.is_file(), "venv module missing at {}", venv.display());
+            }
+            let _ = fs::remove_dir_all(&dir);
+        }
+        if ran == 0 {
+            eprintln!("skipping checked macOS archive install; payloads are not in .artifacts");
+        } else {
+            assert_eq!(ran, cases.len(), "partial payload set in {downloads:?}");
+        }
     }
 }

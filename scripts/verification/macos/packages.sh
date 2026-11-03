@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # S0-MAC-PACKAGES
 #
-# Execution has not been run. This script is pending verification on the
-# MacBook M1 Pro, 16 GB, macOS 14.5 arm64. Pins below were fetched on
-# 31 October 2026 from Windows. A syntax check or a refused run on Windows
-# is not a macOS pass, and a probe result is not runnable-catalog approval.
+# Node, uv, CPython, and pnpm probes ran on the MacBook M1 Pro, macOS 14.5
+# arm64, on 3 November 2026. Pins below were fetched on 31 October 2026.
+# A syntax check or a refused run on Windows is not a macOS pass. Apache,
+# MySQL, and PostgreSQL stay refused. A probe result is not, by itself,
+# the runnable catalog; catalog entries are added only after that launch.
 #
 # The script does not register OS services, does not edit /etc/hosts, and
 # does not change the global PATH. It does not use sudo. Server components
@@ -59,9 +60,9 @@ HELP_EXIT="0"
 
 usage() {
   cat <<EOF
-S0-MAC-PACKAGES smoke script (pending MacBook M1 Pro, macOS 14.5 arm64)
+S0-MAC-PACKAGES smoke script (MacBook M1 Pro, macOS 14.5 arm64)
 
-This file has not been executed on macOS. Help is the default and does not
+Help is the default and does not
 download, extract, or launch anything. Checksum and probe commands succeed
 only when uname is Darwin arm64 and sw_vers ProductVersion is 14.5 or 14.5.x.
 They re-fetch the publisher checksum (or the pnpm GitHub asset digest) and
@@ -328,19 +329,34 @@ verify_python() {
 pnpm_api_digest() {
   local body="${ARTIFACT_ROOT}/downloads/pnpm-release.json"
   download_file "$PNPM_API_URL" "$body"
+  # GitHub pretty-prints each asset. The digest follows the name, after a
+  # large uploader object, so it is not on the name line. Read forward until
+  # that digest, and stop at the next asset name. A compact one-line body
+  # uses the text after the name and before the following name field.
   awk '
+    function digest_of(text, d) {
+      if (match(text, /"digest"[[:space:]]*:[[:space:]]*"sha256:[0-9a-fA-F]+"/)) {
+        d = substr(text, RSTART, RLENGTH)
+        sub(/^.*sha256:/, "", d)
+        sub(/"$/, "", d)
+        return d
+      }
+      return ""
+    }
     {
-      s = $0
-      key = "\"name\"[[:space:]]*:[[:space:]]*\"pnpm-darwin-arm64.tar.gz\""
-      if (match(s, key)) {
-        rest = substr(s, RSTART, 4000)
-        if (match(rest, "\"digest\"[[:space:]]*:[[:space:]]*\"sha256:[0-9a-fA-F]+\"")) {
-          d = substr(rest, RSTART, RLENGTH)
-          sub(/^.*sha256:/, "", d)
-          sub(/"$/, "", d)
-          print d
-          found = 1
-        }
+      if (want) {
+        if ($0 ~ /"name"[[:space:]]*:/) exit 1
+        d = digest_of($0)
+        if (d != "") { print d; found = 1; exit }
+        next
+      }
+      key = "\"name\"[[:space:]]*:[[:space:]]*\"pnpm-darwin-arm64\\.tar\\.gz\""
+      if (match($0, key)) {
+        rest = substr($0, RSTART + RLENGTH)
+        if (match(rest, /"name"[[:space:]]*:/)) rest = substr(rest, 1, RSTART - 1)
+        d = digest_of(rest)
+        if (d != "") { print d; found = 1; exit }
+        want = 1
       }
     }
     END { if (!found) exit 1 }

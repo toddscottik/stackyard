@@ -6,12 +6,12 @@ This is the personal-release list as of 1 November 2026. It is not a claim that 
 
 - No Stage 8 run has been done on Windows 10 x64 or on the M1 Pro running macOS 14.5. Sleep and wake, a live desktop window, and startup time with an editor and browser on those machines are not measured.
 - The user's own projects were not in this workspace, so they were not part of the run.
-- macOS package execution has not started. macOS Node, Python, uv, and pnpm pins are not in the catalog.
+- macOS Node 24.22.2, CPython 3.12.16, uv 0.13.6, and pnpm 12.16.1 are in the catalog after a payload check on macOS 14.5 arm64. Apache, MySQL, and PostgreSQL are still not installable on macOS.
 - macOS Apache has no approved archive. macOS MySQL has no approved archive. The macOS PostgreSQL zip has no published digest.
 
 ## Packages
 
-- The runnable catalog is Windows-only and still the Stage 0 pins. No second digest-checked Node or Python version has been added, so a newer runtime was not downloaded.
+- The runnable catalog has the Stage 0 Windows pins plus the macOS arm64 Node, CPython, uv, and pnpm pins checked on 3 November 2026. No second digest-checked Node or Python version has been added, so a newer runtime was not downloaded.
 - MySQL 8.4.13 is in the Windows catalog. The publisher ships an MD5 sidecar and no SHA256, so that entry is checked with the published MD5.
 - The Windows Apache and PostgreSQL catalog entries were checked in Stage 0 and were not launched again from the catalog in later stages.
 - `uv` was not on the Linux machine used for the Stage 8 fixture check, so the uv path was not run there. Windows uv 0.13.6 was checked in Stage 2.

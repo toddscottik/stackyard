@@ -92,6 +92,14 @@ fn extract_tar_gz(archive: &Path, destination: &Path) -> Result<()> {
                 .map_err(|source| Error::io("create tar directory", source))?;
             continue;
         }
+        if entry.header().entry_type().is_symlink() {
+            extract_symlink(&entry, &name, destination)?;
+            continue;
+        }
+        if entry.header().entry_type().is_hard_link() {
+            extract_hard_link(&entry, &name, destination)?;
+            continue;
+        }
         if !entry.header().entry_type().is_file() {
             return Err(Error::UnsafeArchivePath { entry: name });
         }
@@ -104,6 +112,129 @@ fn extract_tar_gz(archive: &Path, destination: &Path) -> Result<()> {
             File::create(&target).map_err(|source| Error::io("create tar file", source))?;
         io::copy(&mut entry, &mut output)
             .map_err(|source| Error::io("extract tar file", source))?;
+        set_extracted_mode(&entry, &target)?;
+    }
+    Ok(())
+}
+
+fn link_stays_inside(entry: &Path, link: &str) -> bool {
+    let link_path = Path::new(link);
+    if link.is_empty() || link_path.is_absolute() || link.contains(':') {
+        return false;
+    }
+    let mut parts = Vec::new();
+    if let Some(parent) = entry.parent() {
+        for component in parent.components() {
+            match component {
+                Component::Normal(part) => parts.push(part.to_owned()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if parts.pop().is_none() {
+                        return false;
+                    }
+                }
+                Component::RootDir | Component::Prefix(_) => return false,
+            }
+        }
+    }
+    for component in link_path.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_owned()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if parts.pop().is_none() {
+                    return false;
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => return false,
+        }
+    }
+    true
+}
+
+fn extract_symlink<R: Read>(
+    entry: &tar::Entry<'_, R>,
+    name: &str,
+    destination: &Path,
+) -> Result<()> {
+    let relative = safe_relative(name)?;
+    let link = entry
+        .link_name()
+        .map_err(|source| Error::io("read tar symlink", source))?
+        .ok_or_else(|| Error::UnsafeArchivePath {
+            entry: name.to_string(),
+        })?;
+    let link = link.to_string_lossy();
+    if !link_stays_inside(&relative, &link) {
+        return Err(Error::UnsafeArchivePath {
+            entry: name.to_string(),
+        });
+    }
+    let target = destination.join(&relative);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|source| Error::io("create tar parent", source))?;
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(link.as_ref(), &target)
+            .map_err(|source| Error::io("create tar symlink", source))?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = target;
+        Err(Error::UnsafeArchivePath {
+            entry: format!("{name} symlink is not extracted on this operating system"),
+        })
+    }
+}
+
+fn extract_hard_link<R: Read>(
+    entry: &tar::Entry<'_, R>,
+    name: &str,
+    destination: &Path,
+) -> Result<()> {
+    let relative = safe_relative(name)?;
+    let link = entry
+        .link_name()
+        .map_err(|source| Error::io("read tar hard link", source))?
+        .ok_or_else(|| Error::UnsafeArchivePath {
+            entry: name.to_string(),
+        })?;
+    let source_rel =
+        safe_relative(&link.to_string_lossy()).map_err(|_| Error::UnsafeArchivePath {
+            entry: name.to_string(),
+        })?;
+    let source = destination.join(&source_rel);
+    if !source.is_file() {
+        return Err(Error::InvalidMessage(format!(
+            "hard link {name} points at {}, which is not in the archive yet",
+            source_rel.display()
+        )));
+    }
+    let target = destination.join(&relative);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|source| Error::io("create tar parent", source))?;
+    }
+    fs::hard_link(&source, &target).map_err(|source| Error::io("create tar hard link", source))?;
+    Ok(())
+}
+
+fn set_extracted_mode<R: Read>(entry: &tar::Entry<'_, R>, target: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(mode) = entry.header().mode() {
+            let perm = mode & 0o777;
+            if perm != 0 {
+                fs::set_permissions(target, fs::Permissions::from_mode(perm))
+                    .map_err(|source| Error::io("set extracted mode", source))?;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (entry, target);
     }
     Ok(())
 }
@@ -182,6 +313,144 @@ mod tests {
         assert!(matches!(error, Error::UnsafeArchivePath { .. }));
         assert!(!root.join("escape.txt").exists());
         assert!(!destination.join("escape.txt").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    fn gzip_tar(
+        write_members: impl FnOnce(&mut tar::Builder<flate2::write::GzEncoder<Vec<u8>>>),
+    ) -> Vec<u8> {
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut builder = tar::Builder::new(encoder);
+        write_members(&mut builder);
+        let encoder = builder.into_inner().expect("tar");
+        encoder.finish().expect("gzip")
+    }
+
+    fn append_file(
+        builder: &mut tar::Builder<flate2::write::GzEncoder<Vec<u8>>>,
+        path: &str,
+        mode: u32,
+        bytes: &[u8],
+    ) {
+        let mut header = tar::Header::new_gnu();
+        header.set_path(path).expect("path");
+        header.set_size(bytes.len() as u64);
+        header.set_mode(mode);
+        header.set_cksum();
+        builder.append(&header, bytes).expect("file");
+    }
+
+    fn append_hard_link(
+        builder: &mut tar::Builder<flate2::write::GzEncoder<Vec<u8>>>,
+        path: &str,
+        target: &str,
+    ) {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Link);
+        header.set_path(path).expect("path");
+        header.set_link_name(target).expect("link");
+        header.set_size(0);
+        header.set_cksum();
+        builder
+            .append(&header, std::io::empty())
+            .expect("hard link");
+    }
+
+    fn append_symlink(
+        builder: &mut tar::Builder<flate2::write::GzEncoder<Vec<u8>>>,
+        path: &str,
+        target: &str,
+    ) {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Symlink);
+        header.set_path(path).expect("path");
+        header.set_link_name(target).expect("link");
+        header.set_size(0);
+        header.set_mode(0o777);
+        header.set_cksum();
+        builder.append(&header, std::io::empty()).expect("symlink");
+    }
+
+    #[test]
+    fn tar_gz_keeps_relative_symlinks_and_executable_mode() {
+        let bytes = gzip_tar(|builder| {
+            append_file(builder, "python/bin/python3.12", 0o755, b"python-bytes\n");
+            append_symlink(builder, "python/bin/python3", "python3.12");
+            append_file(
+                builder,
+                "node/lib/node_modules/npm/bin/npm-cli.js",
+                0o644,
+                b"npm-cli\n",
+            );
+            append_symlink(
+                builder,
+                "node/bin/npm",
+                "../lib/node_modules/npm/bin/npm-cli.js",
+            );
+        });
+        let root = crate::paths::disposable_dir("tar-links");
+        fs::create_dir_all(&root).expect("root");
+        let archive = root.join("runtime.tar.gz");
+        fs::write(&archive, bytes).expect("archive");
+        let destination = root.join("out");
+        fs::create_dir_all(&destination).expect("dest");
+        extract("tar.gz", &archive, &destination).expect("extract");
+        assert_eq!(
+            fs::read(destination.join("python/bin/python3")).expect("python"),
+            b"python-bytes\n"
+        );
+        assert_eq!(
+            fs::read(destination.join("node/bin/npm")).expect("npm"),
+            b"npm-cli\n"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let mode = fs::metadata(destination.join("python/bin/python3.12"))
+                .expect("mode")
+                .mode();
+            assert_eq!(mode & 0o111, 0o111, "python3.12 mode {mode:o}");
+            let link = fs::symlink_metadata(destination.join("python/bin/python3")).expect("link");
+            assert!(link.file_type().is_symlink());
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tar_gz_keeps_hard_links_inside_the_archive() {
+        let bytes = gzip_tar(|builder| {
+            append_file(builder, "dist/original.txt", 0o644, b"shared\n");
+            append_hard_link(builder, "dist/copy.txt", "dist/original.txt");
+        });
+        let root = crate::paths::disposable_dir("tar-hard");
+        fs::create_dir_all(&root).expect("root");
+        let archive = root.join("links.tar.gz");
+        fs::write(&archive, bytes).expect("archive");
+        let destination = root.join("out");
+        fs::create_dir_all(&destination).expect("dest");
+        extract("tar.gz", &archive, &destination).expect("extract");
+        assert_eq!(
+            fs::read(destination.join("dist/copy.txt")).expect("copy"),
+            b"shared\n"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tar_gz_rejects_symlink_that_escapes_destination() {
+        let bytes = gzip_tar(|builder| {
+            append_symlink(builder, "bin/escape", "../../outside");
+        });
+        let root = crate::paths::disposable_dir("tar-escape");
+        fs::create_dir_all(&root).expect("root");
+        let archive = root.join("bad.tar.gz");
+        fs::write(&archive, bytes).expect("archive");
+        let destination = root.join("out");
+        fs::create_dir_all(&destination).expect("dest");
+        let error = extract("tar.gz", &archive, &destination).expect_err("unsafe");
+        assert!(matches!(error, Error::UnsafeArchivePath { .. }));
+        assert!(!root.join("outside").exists());
+        assert!(!destination.join("outside").exists());
         let _ = fs::remove_dir_all(&root);
     }
 }
