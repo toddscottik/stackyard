@@ -20,3 +20,25 @@ The coordinator owns this file. Status is separate from stage completion. Claim 
 All workers may read existing documentation. Runtime caches and test data belong under `.artifacts/<task-id>/` and stay out of Git. Root instructions, root dependency manifests/lockfiles, shared APIs, PACKAGE_VERIFICATION.md, IMPLEMENTATION_STATUS.md, and this queue remain coordinator-owned unless explicitly reassigned.
 
 `scripts/verification/windows/runtimes.ps1`, `scripts/verification/windows/servers.ps1`, and `scripts/verification/macos/packages.sh` exist. Each provides help, explicit paths or ports, non-destructive defaults, and structured results. Do not treat missing software or a compiler as a passed check.
+
+## Remaining work — 4 November 2026
+
+Stage 8A is next. Stages 0–8 remain the implemented baseline; their pending target checks are retained. The former broad Stage 9 is replaced by Stages 9–17. Detailed tasks, acceptance, ownership boundaries and handoffs are in DEVELOPMENT_PLAN.md.
+
+| ID | Status / owner | Bounded scope | Dependency |
+| --- | --- | --- | --- |
+| S8A-PHP | Next / unassigned | PHP, Composer, extension profiles/downloads, Apache integration and Memcached | Existing provider infrastructure and artifact feasibility |
+| S9-CONTRACTS | Waiting / unassigned | Define project scopes and launch contracts; execute tasks 9.1–9.4 and its acceptance checks | Stage 8A implementation and existing Stages 0–8. |
+| S10-DESKTOP | Waiting / unassigned | Build the shared desktop workspace and activity layer; execute tasks 10.1–10.4 and its acceptance checks | Stage 9 contracts. |
+| S11-CREATE | Waiting / unassigned | Create runnable projects from the desktop; execute tasks 11.1–11.4 and its acceptance checks | Stages 9–10 and approved runtime/tool artifacts. |
+| S12-IMPORT | Waiting / unassigned | Import applications and edit their configuration; execute tasks 12.1–12.4 and its acceptance checks | Stages 9–11. |
+| S13-COMPONENTS | Waiting / unassigned | Unify components, dependencies and PHP extensions; execute tasks 13.1–13.4 and its acceptance checks | Stages 8A and 9–12. |
+| S14-DATABASES | Waiting / unassigned | Complete project database workflows; execute tasks 14.1–14.4 and its acceptance checks | Stages 9–10 and 12; existing Stage 6 providers. |
+| S15-WEB | Waiting / unassigned | Complete sites, HTTPS and desktop settings; execute tasks 15.1–15.4 and its acceptance checks | Stages 9–10 and 12; 8A PHP integration and existing Stage 5. |
+| S16-USABILITY | Waiting / unassigned | Finish desktop usability and failure recovery; execute tasks 16.1–16.4 and its acceptance checks | Stages 10–15. |
+| S17-ACCEPTANCE | Waiting / unassigned | Accept the integrated app on Windows and macOS; execute tasks 17.1–17.4 and its acceptance checks | Stages 8A and 9–16; approved artifacts for every advertised target capability. |
+| S18-PUBLIC | Deferred / unassigned | Signing, notarization, verified distribution/updater and clean-machine release tests | Stage 17 and distribution/license decisions |
+
+A stage is a sequence of small assignments, not one instruction to implement everything concurrently. Before dispatch, choose one numbered task and assign exact writable paths, inputs, output examples, checks, evidence and a handoff under AGENT_WORKFLOW.md. Coordinator owns schema/protocol/lockfiles/status; no workers are assigned here.
+
+After Stage 9 contracts, independent owners can prepare recipe content, desktop resource infrastructure and platform package checks. Dependency order still governs integration. Stages 13–15 may overlap after their declared dependencies, using disjoint files; shared App.tsx/protocol edits must have one owner.

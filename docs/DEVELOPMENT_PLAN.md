@@ -1,8 +1,18 @@
 # Development stages and agent handoff
 
-Date: 31 October 2026. Status: ready for staged implementation; application implementation has not started.
+Original plan: 31 October 2026. Updated: 4 November 2026. Stages 0–8 implemented; target acceptance gaps are recorded separately.
 
 This is the execution plan. Where it differs from PRODUCT_PLAN.md or PRODUCT_PLAN_REVIEW.md, use this document for initial scope and ordering. Those documents retain research and broader product ideas. Read PACKAGE_VERIFICATION.md before selecting binary packages.
+
+## Current position and corrective follow-up — 4 November 2026
+
+Stages 0–8 already have implementations; consult IMPLEMENTATION_STATUS.md for evidence and outstanding platform acceptance. They are the baseline for further work. The remaining stages are Stage 8A (PHP/extensions), Stages 9–17 (bounded workflow and acceptance work), and Stage 18 (public release). Historical setup statements below describe the original plan, not current machine state.
+
+DeepSeek's [desktop proposal](UI_REWORK_PROPOSAL.md) is a focused correction to the existing application, principally Stages 3–4 plus missing desktop access to Stage 6 capabilities. See [the review](UI_REWORK_REVIEW.md). It does not restart the roadmap.
+
+The user confirmed runnable **Node HTTP, Next.js, Flask, and FastAPI starters** for the first usable release. A folder plus manifest is insufficient. Add creation and ordinary-folder import to the existing engine/CLI/desktop; reuse its package installer, dependency operations, supervisor, Apache, and databases. Mixed Node/Python projects need independent dependency scopes. These requirements supersede import-only acceptance and manifest-only creation in earlier text.
+
+Agreed order: Stage 8A → Stages 9–15 (specific domain and desktop workflows) → Stage 16 (usability/recovery) → Stage 17 (target acceptance) → Stage 18 (public release). Stage dependencies below permit independent work without requiring every stage to be sequential. Complete PHP/Composer, extension downloads/profiles, Apache/PHP integration, and Memcached behavior first, then build the reworked flows around those working capabilities alongside Node/Python. Use engine/CLI and minimal desktop controls to validate 8A; reserve the broader UI redesign for the rework. Keep platform checks active throughout; public release waits for required target acceptance. Define only missing contracts; reuse completed foundations.
 
 ## Fixed scope for the first usable release
 
@@ -136,9 +146,179 @@ Stage 8 must exercise a pnpm-based Next.js fixture and a pip-managed Python envi
 
 **Acceptance:** Composer install/checks run using selected PHP; CLI and HTTP load the intended extensions; incompatible artifacts never replace working profiles; two projects can differ in enabled extensions; PHP updates revalidate the extension set. A real PHP memcached client performs set/get against a managed local server and an existing endpoint. Unsupported target combinations remain explicit. A connection-only fallback does not count as completing managed server installation.
 
-## Stage 9 — Prepare a public release and extend coverage
+## Stage 9 — Define project scopes and launch contracts
 
-**Depends on:** Stage 8 and user decisions on distribution/license.
+**Depends on:** Stage 8A implementation and existing Stages 0–8.
+
+**Outcome:** A shared engine/CLI contract that represents Node, Python, and PHP projects without one project-wide package manager controlling every service.
+
+**Tasks:**
+
+- 9.1 Audit existing manifest, protocol, store migrations, dependency tasks, and 8A profiles. Record what is reused and the minimum schema/API changes in one decision note; define request/result examples before UI work.
+- 9.2 Implement dependency scopes with stable IDs, contained working directories, runtime/tool selections, environment ownership, manager, and lockfile authority. Services reference scopes; PHP extension profiles stay distinct from Composer dependencies. Preserve legacy single-scope projects through an explicit migration/default.
+- 9.3 Separate process state, endpoint presence, readiness mode, and observed HTTP status. Support HTTP checks, TCP checks without HTTP paths, and workers without endpoints. Preserve legacy readiness semantics; new profiles write their choice explicitly. Reject Apache proxy targets without HTTP endpoints.
+- 9.4 Define structured validation/error results and a pure preview contract. Preview accepts a draft, reports missing runtimes/tools and unresolved auto ports, and does not execute commands, create environments, or download files.
+
+**Acceptance:** Load legacy manifests and reopen migrated state without lost selections. Run a disposable pnpm frontend and pip/uv API as independent scopes; a dependency action in one leaves the other unchanged. Exercise a worker, redirecting HTTP app, strict health endpoint, missing tool, invalid scope reference, and escaping directory. CLI and desktop boundary types agree.
+
+**Implementation area / ownership:** Core manifest/dependency/project models, protocol, store migrations, engine launch resolution, CLI; coordinator owns shared DTOs and lockfiles.
+
+**Handoff / boundary:** Document the schema/API examples, migration behavior, scope ownership, and fixtures for Stages 10–15. No broad UI redesign or starter generation in this stage.
+
+## Stage 10 — Build the shared desktop workspace and activity layer
+
+**Depends on:** Stage 9 contracts.
+
+**Outcome:** A maintainable desktop shell that preserves existing actions and can host the new workflows.
+
+**Tasks:**
+
+- 10.1 Split App.tsx into shell/navigation and feature panels. Add project selection and workspace tabs with remembered selection; preserve existing import/start/stop/install/database/site actions during migration.
+- 10.2 Add typed resource hooks with loading, local error, refresh/invalidation, and one polling owner per resource/task. Depend on stable IDs; prevent duplicate submissions and stale responses when changing projects.
+- 10.3 Unify existing install/dependency activity by operation ID, with progress, output, cancel/retry capabilities, and results surviving navigation. Add engine status/query support only where existing operations lack it; reconnect must reconcile with engine state rather than fabricate success.
+- 10.4 Tail logs using offsets, bounded buffers, rotation/truncation handling, follow/pause, and final output after exit. Map lifecycle buttons to valid engine states and keep failures beside their originating action.
+
+**Acceptance:** Import an existing fixture, start it, navigate away/back while installing dependencies, reconnect the UI, read appended logs, restart, and stop. Verify cancellation, engine-down retry, final crash output, rotated logs, stale response handling, and that existing database/site actions remain available. Add focused UI tests at the invoke boundary and a real desktop smoke; stubs do not prove process behavior.
+
+**Implementation area / ownership:** Desktop app/api/feature modules and narrowly scoped engine operation queries. Establish file ownership before workers split App.tsx.
+
+**Handoff / boundary:** Publish component/resource/operation contracts and a parity checklist. New application recipes and database feature expansion belong to later stages.
+
+## Stage 11 — Create runnable projects from the desktop
+
+**Depends on:** Stages 9–10 and approved runtime/tool artifacts.
+
+**Outcome:** Create project produces working source and a runnable application for Node HTTP, Next.js, Flask, and FastAPI.
+
+**Tasks:**
+
+- 11.1 Define versioned recipes: ID/version, source files or pinned generator/arguments, dependency inputs, required components, launch profile, and supported target evidence. Use the existing artifact policy; never resolve an unbounded latest generator.
+- 11.2 Implement engine plan/apply plus CLI entry points. Plan previews target paths, files, downloads, commands, and next steps. Apply rechecks target contents/fingerprints, refuses unsafe overwrites, writes atomically where possible, and records partial outcomes. Cancellation preserves pre-existing files and never deletes unrelated data.
+- 11.3 Deliver Node HTTP first as a complete desktop flow: native folder picker → name/recipe → runtime/manager choice (download or existing) → review → generate → install → start → open URL/logs. Include back/edit validation and a useful next action on failure.
+- 11.4 Add Next.js, Flask, and FastAPI recipes using the same contract. Generate actual source, dependency declarations and manifest; do not count an empty folder or manifest as a starter. Report network/cache requirements and support retry without duplicating files or project records.
+
+**Acceptance:** On disposable paths create each starter entirely through the desktop, install, receive the expected response, inspect logs, exercise supplied hot reload, restart, and stop its process tree. Test managed and existing runtimes, invalid names, spaces/Unicode paths, nonempty targets, changed files after preview, interrupted generation/download/install, and safe retry. Record exact recipe/runtime/dependency versions; unsupported Mac artifacts remain visible.
+
+**Implementation area / ownership:** Recipe definitions, creation engine/core/CLI, desktop create feature, fixtures. Separate recipe content ownership from shared creation contracts.
+
+**Handoff / boundary:** Provide four versioned starter fixtures and per-target results. PHP's existing-app workflow is integrated in Stage 13; additional PHP framework generators are not implied.
+
+## Stage 12 — Import applications and edit their configuration
+
+**Depends on:** Stages 9–11.
+
+**Outcome:** Existing applications can be added without hand-writing stackyard.toml, and their configuration can be changed safely afterward.
+
+**Tasks:**
+
+- 12.1 Add bounded read-only detection of package metadata, scripts, lockfiles, Python entry points, Composer/PHP roots, and conventional workspace directories. Skip generated directories, cap reads, and prevent symlink/junction escapes. Show evidence/confidence; unknown or unsupported managers lead to explicit/manual setup.
+- 12.2 Offer Next.js, Vite, Express, Flask, and FastAPI launch suggestions; respect existing scripts, packageManager and lockfiles. Separate npm/pnpm argument forwarding and host/port rules, and never assume an Express application reads PORT. PHP detection uses 8A capabilities and proposes a document root for review.
+- 12.3 Provide editable service/scope/site forms with pure validation and preview. Preserve existing manifests, comments where practical, and unrelated files; apply only against the previewed fingerprint. Provide open-in-editor/reload for unsupported advanced fields.
+- 12.4 Add stopped-project forget and safe reload behavior. Specify how owned scope/selections/bindings are detached; preserve source, secrets needed by retained resources, and database data. Refuse forgetting while project operations are active.
+
+**Acceptance:** Import ordinary Next.js, Flask/FastAPI and PHP folders without a manifest, plus a mixed Next.js/FastAPI workspace. Review suggestions, save and run; legacy manifests still import. Test malformed metadata, conflicting lockfiles, unsupported managers, unknown entry points, fixed-port apps, concurrent edits and junctions. Forget a stopped project and prove files and database data remain.
+
+**Implementation area / ownership:** Detection/profile core, project configuration/forget commands, desktop import and service editor, fixtures.
+
+**Handoff / boundary:** Document supported detection evidence and manual fallback. No arbitrary code execution during detection and no silent manager conversion.
+
+## Stage 13 — Unify components, dependencies and PHP extensions
+
+**Depends on:** Stages 8A and 9–12.
+
+**Outcome:** Global Components and each project's Stack expose the same working runtime/tool/server and extension capabilities.
+
+**Tasks:**
+
+- 13.1 Group components by runtime/tool/server; show source, version, target, path, use-by references, catalog availability and install status. Add discovery/Browse/validation, side-by-side installation, and actionable removal protection.
+- 13.2 In each dependency scope expose manager/runtime selection and install/add/remove/selected-update/list/recover with workspace context, output and cancellation. Respect npm/pnpm, pip/uv and Composer lockfile semantics; show changes to declarations versus environment-only changes honestly.
+- 13.3 Wire the 8A extension inventory, compatible downloads, enable/disable and per-project profiles into PHP's Stack panel. Show ABI incompatibility before activation, apply candidate profiles through existing probes, and report affected PHP worker restarts.
+- 13.4 Present runtime updates, tool updates, dependency updates and extension updates separately. Show Memcached as a server/endpoint and the PHP memcached extension as its client; do not merge them into one install.
+
+**Acceptance:** Install two runtime versions and switch one scope without changing another. Reference an existing installation without modifying it; refuse removal while in use. Exercise pnpm, pip/uv and Composer operations. Give two PHP projects different extension profiles; verify CLI and HTTP, reject an incompatible artifact while preserving the working profile, and perform Memcached set/get.
+
+**Implementation area / ownership:** Desktop Components/Stack features; reuse package, update, dependency and 8A commands. Add only missing typed adapters.
+
+**Handoff / boundary:** Record managed/existing capability matrices by target and unresolved artifact gaps. This stage exposes 8A behavior rather than rebuilding its installers.
+
+## Stage 14 — Complete project database workflows
+
+**Depends on:** Stages 9–10 and 12; existing Stage 6 providers.
+
+**Outcome:** A project can provision or attach a database and use its credentials without manually finding secret files.
+
+**Tasks:**
+
+- 14.1 Separate fleet instance administration from project connection tasks. Expose create instance, start/stop, create database/user, attach existing, SQLite selection, and probe. Show download/version/data-path review and shared-instance impact; remove implicit global-default changes.
+- 14.2 Expose deliberate credential copy/reveal and per-service connection/environment mappings. Define variable collisions and precedence, encode credentials in driver-specific URLs, and handle missing/stopped connections explicitly. Shareable manifests contain no secret values.
+- 14.3 Offer previewed .env output without overwriting unrelated entries. Keep resolved credentials out of application-control errors/diagnostics; document that application-emitted logs can contain secrets and apply the existing redaction policy.
+- 14.4 Wire backup/restore and SQLite consistent backups with file dialogs. Restore into a fresh/disposable target; detach preserves server/data. Instance deletion and database drop remain deferred unless separately scoped with data-safety acceptance.
+
+**Acceptance:** Using disposable MySQL/PostgreSQL, create a database/user, launch a fixture reading its mapped connection, perform CRUD, restart, backup, restore to a new target and verify content. Test SQLite backup/restore, passwords with URL-reserved characters, variable conflicts, unavailable server, shared-instance stop impact, external attach/detach, and secrets absent from diagnostics.
+
+**Implementation area / ownership:** Desktop database fleet/project panels, connection mapping storage/launch integration, existing database command adapters.
+
+**Handoff / boundary:** Return credential/mapping ownership rules and backup/restore evidence for all three database types. Database major migrations remain unsupported.
+
+## Stage 15 — Complete sites, HTTPS and desktop settings
+
+**Depends on:** Stages 9–10 and 12; 8A PHP integration and existing Stage 5.
+
+**Outcome:** Project Site and global Web/Data settings provide the real routing and host-integration controls.
+
+**Tasks:**
+
+- 15.1 Build project Site configuration and publish/unpublish with correct HTTP/HTTPS URLs and ports, static/PHP document roots or HTTP service targets, Apache state and shared restart impact.
+- 15.2 Expose front ports and explicit hosts/trust operations with previews, permission boundaries and reversal. Preserve unrelated entries/certificates; distinguish named-directory certificate tests from actual OS/browser trust.
+- 15.3 Finish runtime-aware project terminal/editor/folder/log-folder actions using the selected scope and environment. Custom project commands remain non-elevated and use engine argument arrays.
+- 15.4 Group General, Web, Data and About settings: existing tray/quit policy, open/copy data paths, scoped cleanup preview, diagnostics save, versions and catalog revision. Data relocation and start-at-login are deferred unless separately specified.
+
+**Acceptance:** Serve concurrent PHP, Node and Python sites, including .htaccess, redirects, POST/upload, HMR/WebSockets and high-port URLs. Reject invalid candidate config while retaining working sites. Test occupied ports without killing their owner; verify actual OS/browser HTTPS trust and its removal on both targets. Show the selected runtime in the project terminal; cleanup protects active resources and diagnostics remain redacted.
+
+**Implementation area / ownership:** Desktop Site/Settings and Tauri host-integration adapters; existing Apache/trust/hosts/open commands.
+
+**Handoff / boundary:** Record privileged effects and reversal checks separately from ordinary UI tests. Missing target trust or package checks stay pending.
+
+## Stage 16 — Finish desktop usability and failure recovery
+
+**Depends on:** Stages 10–15.
+
+**Outcome:** All delivered workflows remain usable through keyboard, navigation, cancellation, engine reconnect and offline startup.
+
+**Tasks:**
+
+- 16.1 Review every empty/loading/error/disabled state; name the next action and affected object. Confirm destructive consequences at the relevant action; remove duplicate lifecycle controls and dead affordances.
+- 16.2 Complete native copy/save/picker behavior, keyboard traversal/shortcuts, focus return, screen-reader labels, non-color status cues and reduced motion. Verify 1024×700 through larger windows without clipping.
+- 16.3 Bundle licensed fonts and remove remote rendering dependencies. Preserve offline startup for installed projects; explain uncached dependency/component downloads.
+- 16.4 Exercise cross-feature operation recovery: navigation/reconnect/relaunch during downloads, dependency tasks, creation and configuration changes. Reconcile from actual engine state, preserve partial results and provide safe retry. Add focused regression tests for observed failures.
+
+**Acceptance:** Complete create/import/start/stop and extension/database tasks using keyboard; verify focus/error placement, copy actions, minimum-size layout and offline rendering. Cancel/retry and reconnect across each long operation; no duplicate process/install or false success. Preserve the chosen tray/background shutdown policy.
+
+**Implementation area / ownership:** Cross-feature desktop integration and narrowly scoped recovery fixes; follow applicable UI skills during implementation.
+
+**Handoff / boundary:** Provide a UI regression checklist and actual screenshots/window evidence. Dark theme/command palette are optional enhancements after required flows, not release blockers by themselves.
+
+## Stage 17 — Accept the integrated app on Windows and macOS
+
+**Depends on:** Stages 8A and 9–16; approved artifacts for every advertised target capability.
+
+**Outcome:** A release-candidate acceptance report for Windows 10 x64 and the M1 Pro running macOS 14.5 arm64.
+
+**Tasks:**
+
+- 17.1 Build a matrix linking each stage's acceptance to executable fixtures/manual steps, exact versions, OS/architecture and evidence. Reuse existing Stage 0–8 evidence only for what it actually proves.
+- 17.2 Run fresh-data and upgrade-from-existing-state scenarios on both targets, including four starters, ordinary imports, mixed scopes, managed/existing components, PHP/Composer/extensions/Memcached, database restore and Apache HTTPS/HMR.
+- 17.3 Exercise real user projects, sleep/wake, spaces/Unicode paths, occupied ports, offline cached startup, engine crash/relaunch, close/tray/quit and preserving files/data. Measure startup and idle/active memory with editor/browser open.
+- 17.4 Fix acceptance blockers in their owning stage, update setup/known limitations and rerun affected cases. Maintain a clear list of unsupported combinations; neither Linux tests nor a newer macOS CI runner replace these target runs.
+
+**Acceptance:** Every required capability has passing evidence on its advertised target. Missing required Mac packages/launch/trust checks keep this stage open. No destructive data regression, ownership takeover, secret export or duplicate engine/process remains. The report identifies exact builds, recipe/catalog revisions and any user-approved scope exclusions.
+
+**Implementation area / ownership:** Verification scripts, fixtures, evidence, setup/limitations; fixes assigned to feature owners rather than one unbounded QA rewrite.
+
+**Handoff / boundary:** Record the accepted release candidate and explicit public-release readiness. Publication is not performed by this stage.
+## Stage 18 — Prepare a public release and extend coverage
+
+**Depends on:** Stage 17 accepted, including Stage 8A and Stages 9–16 integration on Windows 10/macOS 14.5, plus user decisions on distribution/license.
 
 **Deliver:** signed release pipeline/updater, macOS notarization, package provenance and notices, catalog signing/rotation, documented OS/version policy, clean-machine tests, and contribution/support documentation. Publish an explicit capability matrix including Stage 8A status; do not advertise PHP/extensions before their acceptance checks pass. Expand one provider at a time: Go, then other languages/services based on demand. Add Linux/Intel Mac support only with actual package and runtime evidence.
 
@@ -158,6 +338,6 @@ Stage 8 must exercise a pnpm-based Next.js fixture and a pip-managed Python envi
 
 > Implement Stage N of docs/DEVELOPMENT_PLAN.md, starting with the next incomplete slice in docs/IMPLEMENTATION_STATUS.md. Read docs/PACKAGE_VERIFICATION.md and applicable repository instructions. Preserve the agreed architecture and scope. Complete the stage's deliverables and relevant acceptance checks, update implementation status, and report evidence and the next task. If a target machine is unavailable, implement/test what is independent and leave that target's checks explicitly pending.
 
-### First task to assign
+### Next task to assign
 
-> Execute Stage 0. Start with the Windows Node/Python managed-download and reuse checks, then Apache/MySQL/PostgreSQL disposable smoke tests. Prepare the corresponding Mac checks. Resolve macOS 14.5 Apache and MySQL artifact selection on the M1 Pro before approving their managed providers. Produce tested artifact records and a clear pass/pending matrix. Do not build the full product UI in this task.
+> Implement the next incomplete Stage 8A slice from IMPLEMENTATION_STATUS.md. Begin with PHP/extension/Memcached artifact feasibility and existing provider contracts; preserve existing Stage 0–8 behavior. After 8A, start task 9.1 and follow declared dependencies. Dispatch one numbered task with exact writable paths and acceptance rather than the whole rework.

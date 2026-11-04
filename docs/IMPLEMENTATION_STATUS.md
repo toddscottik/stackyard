@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 1 November 2026.
+Updated: 4 November 2026 (planning; existing execution evidence retains its dates).
 
 ## Completed preparation
 
@@ -27,7 +27,16 @@ Updated: 1 November 2026.
 | 7: updates/recovery | Partial. Linux x86_64 notice, switch, cleanup, and interrupted-install checks passed on 1 November 2026. No second digest-checked Node or Python pin was downloaded | Download a newer checked Node or Python pin on Windows 10 and switch one project there. Leave macOS pins out until a payload check |
 | 8: personal release | Partial. Linux x86_64 diagnostics, setup notes, and fixture smoke passed on 1 November 2026. Windows 10 and macOS 14.5 acceptance, the user's projects, and sleep/wake are open | Run the acceptance list on Windows 10 x64 and the M1 Pro running macOS 14.5. Measure startup there with an editor and browser. Do not treat the Linux sample as that gate |
 | 8A: PHP/extensions | Not started | PHP/Composer, native extension profiles, Memcached server/client feasibility and integration |
-| 9: public release | Deferred | Distribution/license decisions, release pipeline and expanded coverage |
+| 9: Define project scopes and launch contracts | Not started | A shared engine/CLI contract that represents Node, Python, and PHP projects without one project-wide package manager controlling every service. |
+| 10: Build the shared desktop workspace and activity layer | Not started | A maintainable desktop shell that preserves existing actions and can host the new workflows. |
+| 11: Create runnable projects from the desktop | Not started | Create project produces working source and a runnable application for Node HTTP, Next.js, Flask, and FastAPI. |
+| 12: Import applications and edit their configuration | Not started | Existing applications can be added without hand-writing stackyard.toml, and their configuration can be changed safely afterward. |
+| 13: Unify components, dependencies and PHP extensions | Not started | Global Components and each project's Stack expose the same working runtime/tool/server and extension capabilities. |
+| 14: Complete project database workflows | Not started | A project can provision or attach a database and use its credentials without manually finding secret files. |
+| 15: Complete sites, HTTPS and desktop settings | Not started | Project Site and global Web/Data settings provide the real routing and host-integration controls. |
+| 16: Finish desktop usability and failure recovery | Not started | All delivered workflows remain usable through keyboard, navigation, cancellation, engine reconnect and offline startup. |
+| 17: Accept the integrated app on Windows and macOS | Not started | A release-candidate acceptance report for Windows 10 x64 and the M1 Pro running macOS 14.5 arm64. |
+| 18: public release | Deferred; depends on 17 | Signing/notarization, distribution, updater, clean-machine release checks and license decisions |
 
 ## Open evidence gaps
 
@@ -159,3 +168,7 @@ Commands and outcomes on this machine:
 Details: `docs/evidence/S8-PERSONAL.md` and `docs/decisions/0006-personal-release.md`.
 
 Next task: run this acceptance list on Windows 10 x64 and the M1 Pro running macOS 14.5, including the user's projects, sleep and wake, and a startup measurement with an editor and browser. Do not mark Stage 8 passed from the Linux sample.
+
+## Planning clarification — 4 November 2026
+
+Stages 0–8 remain the implemented baseline; pending target acceptance is tracked separately. Stage 8A remains next. The former broad Stage 9 is split into Stages 9–17 with numbered tasks and acceptance in DEVELOPMENT_PLAN.md; public release is now Stage 18 and requires Stage 17 acceptance. Runnable Node, Next.js, Flask and FastAPI starters are delivered in Stage 11. See UI_REWORK_REVIEW.md and WORK_QUEUE.md. Planning only; no new implementation or runtime acceptance is claimed.
