@@ -215,7 +215,7 @@ pub fn service_launch(
         runtime_path.clone()
     };
     let pnpm = resolve_tool(data_dir, &project.id, "pnpm")?;
-    let (program, mut args) = rewrite_command(
+    let (mut program, mut args) = rewrite_command(
         &root,
         &working_directory,
         command,
@@ -238,10 +238,32 @@ pub fn service_launch(
     front.push(working_directory.join("node_modules").join(".bin"));
     let mut env = service.env.clone();
     if service.runtime == RuntimeRole::Php {
-        if command.first().map(String::as_str) != Some("php") {
+        let php_cgi = command.first().map(String::as_str) == Some("php-cgi");
+        if !matches!(command.first().map(String::as_str), Some("php" | "php-cgi")) {
             return Err(Error::InvalidManifest {
-                detail: "PHP services must launch the selected php executable".to_string(),
+                detail: "PHP services must launch selected php or its php-cgi sibling".to_string(),
             });
+        }
+        if php_cgi {
+            if command.len() != 3 || command[1] != "-b" || command[2] != "127.0.0.1:{port}" {
+                return Err(Error::InvalidManifest { detail: "managed php-cgi command must be [php-cgi, -b, 127.0.0.1:{port}] for its owned loopback endpoint".into() });
+            }
+            let cgi = runtime_path
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join(if cfg!(windows) {
+                    "php-cgi.exe"
+                } else {
+                    "php-cgi"
+                });
+            if !cgi.is_file() {
+                return Err(Error::InvalidMessage(format!("selected PHP has no FastCGI executable at {}; select a build containing php-cgi", cgi.display())));
+            }
+            program = cgi;
+            // The supervisor owns one foreground FastCGI process, not PHP's
+            // optional internal pool or request-count recycling.
+            env.push(("PHP_FCGI_CHILDREN".into(), "0".into()));
+            env.push(("PHP_FCGI_MAX_REQUESTS".into(), "0".into()));
         }
         for argument in command.iter().skip(1) {
             if ["-n", "-c", "-d", "--no-php-ini", "--php-ini", "--define"]
@@ -259,6 +281,9 @@ pub fn service_launch(
             crate::php_project::php_launch_config(data_dir, &project.id, &runtime_path)?;
         prefix.append(&mut args);
         args = prefix;
+        if let Some((_, value)) = php_env.iter().find(|(key, _)| key == "PATH") {
+            front.extend(std::env::split_paths(value));
+        }
         env.extend(php_env);
     }
     env.push(("HOST".to_string(), "127.0.0.1".to_string()));
@@ -465,7 +490,7 @@ fn rewrite_command(
     let program_name = args.remove(0);
     match program_name.as_str() {
         "node" => Ok((node.to_path_buf(), args)),
-        "php" => Ok((node.to_path_buf(), args)),
+        "php" | "php-cgi" => Ok((node.to_path_buf(), args)),
         "python" | "python3" => Ok((python.to_path_buf(), args)),
         "npm" => {
             let (program, prefix) = npm_launch(node)?;

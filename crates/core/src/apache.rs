@@ -30,6 +30,7 @@ pub struct ListenPorts {
 pub enum Upstream {
     Proxy { port: u16 },
     Static { root: PathBuf },
+    FastCgi { port: u16, root: PathBuf },
     Unavailable,
 }
 
@@ -406,6 +407,40 @@ fn push_vhost(
     }
     let proto = if https { "https" } else { "http" };
     match upstream {
+        Upstream::FastCgi {
+            port: backend,
+            root,
+        } => {
+            lines.push(format!("    DocumentRoot {}", quote(root)?));
+            lines.push("    DirectoryIndex index.php index.html".to_string());
+            // Handler mode preserves Apache's normal filename translation and
+            // per-directory rewrites. GENERIC removes the PHP-FPM-specific
+            // proxy prefix from SCRIPT_FILENAME for the php-cgi SAPI.
+            lines.push("    ProxyFCGIBackendType GENERIC".to_string());
+            if cfg!(windows) {
+                // Handler URLs need a slash after the authority. On Windows
+                // GENERIC consequently supplies /C:/...; php-cgi needs C:/....
+                lines.push("    ProxyFCGISetEnvIf \"reqenv('SCRIPT_FILENAME') =~ m|^/([A-Za-z]:/.*)$|\" SCRIPT_FILENAME \"$1\"".to_string());
+            }
+            lines.push("    ProxyTimeout 30".to_string());
+            lines.push(format!("    <Directory {}>", quote(root)?));
+            lines.push("        Options -Indexes +FollowSymLinks".to_string());
+            lines.push("        AllowOverride FileInfo".to_string());
+            lines.push("        Require all granted".to_string());
+            lines.push("        <FilesMatch \"(?i:\\.php)$\">".to_string());
+            lines.push(format!(
+                "            SetHandler \"proxy:fcgi://127.0.0.1:{backend}/\""
+            ));
+            lines.push("        </FilesMatch>".to_string());
+            // Alternate PHP suffixes/backups have no approved handler. Never
+            // fall through to serving their source as a static asset.
+            lines.push(
+                "        <FilesMatch \"(?i:\\.(?:php[0-9]+|phtml|phps)$|\\.php[.~])\">".to_string(),
+            );
+            lines.push("            Require all denied".to_string());
+            lines.push("        </FilesMatch>".to_string());
+            lines.push("    </Directory>".to_string());
+        }
         Upstream::Static { root } => {
             lines.push(format!("    DocumentRoot {}", quote(root)?));
             lines.push(format!("    <Directory {}>", quote(root)?));
@@ -462,13 +497,22 @@ pub fn quote(path: &Path) -> Result<String> {
 }
 
 pub fn site_root(project_root: &Path, relative: &str) -> Result<PathBuf> {
-    let joined = project_root.join(relative);
-    if relative.split(['/', '\\']).any(|part| part == "..") {
+    if Path::new(relative).is_absolute()
+        || relative.contains(':')
+        || relative.starts_with(['/', '\\'])
+        || relative.split(['/', '\\']).any(|part| part == "..")
+    {
         return Err(Error::InvalidManifest {
             detail: format!("site root {relative:?} must stay inside the project"),
         });
     }
-    Ok(joined)
+    let root = crate::project::contained_dir(project_root, Path::new(relative))?;
+    if !root.is_dir() {
+        return Err(Error::InvalidManifest {
+            detail: format!("site root {relative:?} must be an existing directory"),
+        });
+    }
+    Ok(root)
 }
 
 pub fn upstream_for(
@@ -483,6 +527,28 @@ pub fn upstream_for(
             detail: "this project has no [site] table".to_string(),
         })?;
     let upstream = match &site.kind {
+        SiteKind::Php { service_id, root } => {
+            let root = site_root(project_root, root)?;
+            let service = manifest
+                .service(service_id)
+                .ok_or_else(|| Error::InvalidManifest {
+                    detail: format!("PHP site references unknown service {service_id}"),
+                })?;
+            if service.runtime != crate::RuntimeRole::Php
+                || service.command.first().map(String::as_str) != Some("php-cgi")
+            {
+                return Err(Error::InvalidManifest {
+                    detail: "PHP document roots require a selected php-cgi service".to_string(),
+                });
+            }
+            match live_port
+                .filter(|port| *port >= 1024)
+                .or((service.port >= 1024).then_some(service.port))
+            {
+                Some(port) => Upstream::FastCgi { port, root },
+                None => Upstream::Unavailable,
+            }
+        }
         SiteKind::Static { root } => Upstream::Static {
             root: site_root(project_root, root)?,
         },
@@ -691,6 +757,13 @@ mod tests {
                     host: "b.localhost".to_string(),
                     upstream: Upstream::Proxy { port: 19001 },
                 },
+                VirtualSite {
+                    host: "php.localhost".to_string(),
+                    upstream: Upstream::FastCgi {
+                        port: 19002,
+                        root: PathBuf::from("/projects/php/public"),
+                    },
+                },
             ],
         };
         let text = render_httpd(&spec).unwrap();
@@ -709,6 +782,30 @@ mod tests {
         assert!(text.find("ServerName default.localhost").unwrap() < a);
         assert!(text.contains("upgrade=websocket"));
         assert!(text.contains("X-Forwarded-Proto"));
+        let php = &text[text.find("ServerName php.localhost").unwrap()..];
+        assert!(php.contains("DocumentRoot \"/projects/php/public\""));
+        assert!(php.contains("DirectoryIndex index.php index.html"));
+        assert!(php.contains("AllowOverride FileInfo"));
+        assert!(php.contains("ProxyFCGIBackendType GENERIC"));
+        assert!(php.contains("SetHandler \"proxy:fcgi://127.0.0.1:19002/\""));
+        assert!(!php.contains("19001"));
+        assert!(!php.contains("/projects/a/public"));
+    }
+
+    #[test]
+    fn document_roots_must_exist_and_stay_inside_project() {
+        let dir = crate::disposable_dir("document-roots");
+        std::fs::create_dir_all(dir.join("public")).unwrap();
+        std::fs::write(dir.join("file.txt"), "not a directory").unwrap();
+        let inside = site_root(&dir, "public").unwrap();
+        assert!(inside.is_dir());
+        assert!(site_root(&dir, "../outside").is_err());
+        assert!(site_root(&dir, "missing").is_err());
+        assert!(site_root(&dir, "file.txt").is_err());
+        assert!(site_root(&dir, "/outside").is_err());
+        assert!(site_root(&dir, "C:/outside").is_err());
+        assert!(site_root(&dir, "\\\\server\\share").is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

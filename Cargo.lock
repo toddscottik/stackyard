@@ -3379,6 +3379,7 @@ name = "stackyard-engine"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "socket2",
  "stackyard-core",
  "tokio",
  "windows",

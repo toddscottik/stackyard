@@ -1,1 +1,36 @@
-[]
+[
+  {
+    "package": {
+      "id": "php-memcached-3.4.0-php8.5.11-windows-x64",
+      "kind": "php-extension",
+      "name": "php-memcached",
+      "version": "3.4.0-php8.5.11-servbay",
+      "target": "windows-x64",
+      "format": "zip",
+      "url": "https://github.com/ServBay/PHP-Windows-Portable/releases/download/php-8.5.11-x64-nts/php-8.5.11-windows-x64.zip",
+      "sha256": "8011ec199c0b714e2c9a15b0355abe0e93117e1e09f46f486cff4463a6cb9348",
+      "digest_source": "https://api.github.com/repos/ServBay/PHP-Windows-Portable/releases/tags/php-8.5.11-x64-nts",
+      "launch": "ext/php_memcached.dll",
+      "version_args": []
+    },
+    "name": "memcached",
+    "kind": "extension",
+    "library": "ext/php_memcached.dll",
+    "abi": {
+      "version": "8.5.11",
+      "api": "20250925",
+      "zend_api": "420250925",
+      "target": "x86_64-pc-windows-msvc",
+      "architecture": "x86_64",
+      "thread_safe": false,
+      "debug": false,
+      "compiler": "Visual C++ 2022",
+      "extension_build": "API20250925,NTS,VS17",
+      "zend_extension_build": "API420250925,NTS,VS17"
+    },
+    "dependencies": [
+      "libmemcached.dll",
+      "libhashkit.dll"
+    ]
+  }
+]

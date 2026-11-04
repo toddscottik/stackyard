@@ -284,6 +284,16 @@ pub fn read_php_profile(data_dir: &Path, project_id: &str) -> Result<Option<PhpP
     };
     let profile: PhpProfile = serde_json::from_slice(&bytes)
         .map_err(|e| Error::InvalidMessage(format!("read PHP profile record: {e}")))?;
+    validate_profile_location(data_dir, project_id, &profile)?;
+    Ok(Some(profile))
+}
+
+fn validate_profile_location(
+    data_dir: &Path,
+    project_id: &str,
+    profile: &PhpProfile,
+) -> Result<()> {
+    let root = profile_root(data_dir, project_id);
     validate_component(&profile.revision)?;
     let generation = canonical(&root.join(&profile.revision))?;
     if profile.project_id != project_id
@@ -295,7 +305,45 @@ pub fn read_php_profile(data_dir: &Path, project_id: &str) -> Result<Option<PhpP
             "PHP profile record escapes its project generation".into(),
         ));
     }
-    Ok(Some(profile))
+    Ok(())
+}
+
+/// Restore an already validated immutable generation after worker rollout
+/// failure. None restores the original unprofiled (-n) selection. Artifact and
+/// generation files are retained; only the active pointer changes.
+pub fn rollback_php_profile(
+    data_dir: &Path,
+    project_id: &str,
+    previous: Option<&PhpProfile>,
+) -> Result<()> {
+    validate_component(project_id)?;
+    let root = profile_root(data_dir, project_id);
+    fs::create_dir_all(&root).map_err(|e| Error::io("create PHP rollback profile root", e))?;
+    let _lock = ProfileLock::acquire(root.join(".lock"))?;
+    let active = root.join("active.json");
+    let Some(previous) = previous else {
+        return match fs::remove_file(active) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(Error::io("restore unprofiled PHP selection", e)),
+        };
+    };
+    validate_profile_location(data_dir, project_id, previous)?;
+    verify_php_profile(&previous.executable, previous)?;
+    let bytes = serde_json::to_vec_pretty(previous)
+        .map_err(|e| Error::InvalidMessage(format!("serialize previous PHP profile: {e}")))?;
+    if bytes.len() > OUTPUT_LIMIT {
+        return Err(Error::InvalidMessage(
+            "previous PHP profile exceeds 256 KiB".into(),
+        ));
+    }
+    let temporary = root.join(format!("rollback-{}.json", unique_revision()?));
+    write_new(&temporary, &bytes)?;
+    let result = replace_file(&temporary, &active);
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
 }
 
 /// Revalidate both the actual executable and actual extension loads before a
@@ -383,6 +431,22 @@ pub fn php_profile_args(profile: &PhpProfile) -> Vec<String> {
     ]
 }
 
+/// Native dependency search is scoped to this process. Only canonical parent
+/// directories of recorded dependency files inside verified artifact roots
+/// are returned; no global PATH or loader configuration is changed.
+pub fn php_native_directories(profile: &PhpProfile) -> Result<Vec<PathBuf>> {
+    let artifacts = validate_artifacts(&profile.identity, &profile.extensions)?;
+    let mut directories = BTreeSet::new();
+    for artifact in artifacts {
+        for dependency in artifact.dependencies {
+            if let Some(parent) = dependency.parent() {
+                directories.insert(parent.to_path_buf());
+            }
+        }
+    }
+    Ok(directories.into_iter().collect())
+}
+
 /// Apply after project environment overrides. `-c` selects the generated ini;
 /// an explicit empty directory overrides PHP's compiled-in scan directory.
 pub fn configure_php_command(command: &mut Command, profile: &PhpProfile) -> Result<()> {
@@ -394,6 +458,24 @@ pub fn configure_php_command(command: &mut Command, profile: &PhpProfile) -> Res
     clean_php_environment(command);
     command.args(php_profile_args(profile));
     command.env("PHP_INI_SCAN_DIR", &profile.scan_dir);
+    let mut directories = php_native_directories(profile)?;
+    if !directories.is_empty() {
+        let inherited = command
+            .get_envs()
+            .find_map(|(key, value)| {
+                key.to_str()
+                    .filter(|key| key.eq_ignore_ascii_case("PATH"))
+                    .map(|_| value.map(std::ffi::OsStr::to_os_string))
+            })
+            .unwrap_or_else(|| std::env::var_os("PATH"));
+        if let Some(inherited) = inherited {
+            directories.extend(std::env::split_paths(&inherited));
+        }
+        let path = std::env::join_paths(directories).map_err(|e| {
+            Error::InvalidMessage(format!("PHP native dependency search path is invalid: {e}"))
+        })?;
+        command.env("PATH", path);
+    }
     Ok(())
 }
 
@@ -881,6 +963,39 @@ mod tests {
         fs::write(&outside, b"outside").unwrap();
         let mut entry = artifact(&root, identity());
         assert!(validate_artifacts(&identity(), &[entry.clone()]).is_ok());
+        fs::create_dir_all(root.join("native")).unwrap();
+        fs::create_dir_all(root.join("scan")).unwrap();
+        fs::write(root.join("native/dependency.dll"), b"dependency fixture").unwrap();
+        fs::write(root.join("php.ini"), b"; fixture").unwrap();
+        entry.dependencies = vec![root.join("native/dependency.dll")];
+        let profile = PhpProfile {
+            project_id: "test".into(),
+            revision: "fixture".into(),
+            executable: root.join("php.exe"),
+            identity: identity(),
+            extensions: vec![entry.clone()],
+            ini_path: root.join("php.ini"),
+            scan_dir: root.join("scan"),
+        };
+        let native = canonical(&root.join("native")).unwrap();
+        assert_eq!(
+            php_native_directories(&profile).unwrap(),
+            vec![native.clone()]
+        );
+        let inherited = root.join("pending-path");
+        let global = std::env::var_os("PATH");
+        let mut command = Command::new("php");
+        command.env("PATH", &inherited);
+        configure_php_command(&mut command, &profile).unwrap();
+        let scoped = command
+            .get_envs()
+            .find_map(|(key, value)| (key == "PATH").then_some(value.unwrap()))
+            .unwrap();
+        assert_eq!(
+            std::env::split_paths(scoped).collect::<Vec<_>>(),
+            vec![native, inherited]
+        );
+        assert_eq!(std::env::var_os("PATH"), global);
         entry.dependencies = vec![outside.clone()];
         assert!(validate_artifacts(&identity(), &[entry.clone()]).is_err());
         entry.dependencies.clear();
@@ -971,6 +1086,20 @@ mod tests {
             Some(replacement.clone())
         );
         assert_eq!(fs::read(&first.ini_path).unwrap(), original_ini);
+        rollback_php_profile(&root, "first", Some(&first)).unwrap();
+        assert_eq!(
+            read_php_profile(&root, "first").unwrap(),
+            Some(first.clone())
+        );
+        assert!(rollback_php_profile(&root, "first", Some(&second)).is_err());
+        assert_eq!(
+            read_php_profile(&root, "first").unwrap(),
+            Some(first.clone())
+        );
+        rollback_php_profile(&root, "first", None).unwrap();
+        assert!(read_php_profile(&root, "first").unwrap().is_none());
+        assert_eq!(fs::read(&first.ini_path).unwrap(), original_ini);
+        rollback_php_profile(&root, "first", Some(&replacement)).unwrap();
         fs::write(
             replacement.scan_dir.join("injected.ini"),
             b"memory_limit=1M",

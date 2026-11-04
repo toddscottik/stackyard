@@ -2,6 +2,8 @@
 
 4 November 2026. Windows 10 Pro 10.0.19045 x64; Rust 1.99.1; PHP 8.5.12 NTS VS17 x64; Composer 2.11.1; Apache Lounge 2.4.69 VS18; Windows curl 8.13.0. This is a partial Stage 8A handoff, not completion of the development plan or Mac acceptance.
 
+Resumed Windows acceptance is now complete: [native PHP/cache](S8A-NATIVE-CACHE.md), [guarded provider](S8A-CACHE-PROVIDER.md), [FastCGI](S8A-FASTCGI.md), and [live rollout](S8A-RECONFIGURE.md). A real engine network download/activation/set-get smoke also passed. The initial-slice gaps below are retained as historical handoff context; current status is in IMPLEMENTATION_STATUS.md. Mac execution remains pending and does not block independent Stage 9 implementation.
+
 ## Delivered behavior and files
 
 - `catalog/packages.json` adds publisher-SHA256-checked Windows PHP and Composer. The existing verified installer handles PHP ZIP and a narrowly supported raw Composer PHAR format. Both install into owned versioned storage; real relocation into spaces/Unicode paths passed. Existing PHP/Composer references remain immutable.

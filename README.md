@@ -22,7 +22,7 @@ Stage 7 checks the bundled catalog for compatible runtime updates and installs t
 
 Stage 8 adds setup steps, a redacted diagnostics report, and the personal-release limits. The Windows 10 and macOS 14.5 acceptance run is still open. See [setup](docs/SETUP.md), [known limitations](docs/KNOWN_LIMITATIONS.md), and `docs/evidence/S8-PERSONAL.md`.
 
-Stage 8A is partial: Windows PHP 8.5.12-1 and Composer 2.11.1 have publisher-checked pins. PHP projects use isolated extension profiles; Composer uses selected PHP and checks platform requirements. CLI/engine/Tauri adapters are available; the dedicated desktop Stack workflow remains Stage 13. See [integration evidence](docs/evidence/S8A-INTEGRATE.md) and the [PHP fixture](fixtures/php-http/README.md). Managed Memcached and its PHP client remain unavailable; the tested Windows server candidate failed occupied-port refusal. Mac PHP/extension execution remains pending.
+Stage 8A Windows providers include publisher-checked PHP 8.5.11/8.5.12-1, Composer 2.11.1 and memcached 3.4.0. Profiles support PHP-only live restart/rollback; Apache can serve PHP FastCGI document roots and rewrites. Managed native Memcached runs behind an exclusive engine loopback listener and private native socket. CLI/engine/Tauri adapters are available; the dedicated desktop Stack workflow remains Stage 13. See [native acceptance](docs/evidence/S8A-NATIVE-CACHE.md), [provider evidence](docs/evidence/S8A-CACHE-PROVIDER.md) and the [PHP fixture](fixtures/php-http/README.md). Mac PHP/extension execution remains pending.
 
 Development commands, from the repository root:
 
@@ -51,6 +51,10 @@ cargo run -p stackyard-cli -- deps recover PROJECT
 cargo run -p stackyard-cli -- php status PROJECT
 cargo run -p stackyard-cli -- php profile PROJECT openssl mbstring
 cargo run -p stackyard-cli -- memcached-probe 127.0.0.1 11211
+cargo run -p stackyard-cli -- php install-extension PROJECT php-memcached-3.4.0-php8.5.11-windows-x64
+cargo run -p stackyard-cli -- cache create memcached-1.6.8-windows-x64
+cargo run -p stackyard-cli -- cache list
+cargo run -p stackyard-cli -- cache stop INSTANCE
 pnpm --dir apps/desktop install --frozen-lockfile
 pnpm --dir apps/desktop run dev
 pnpm --dir apps/desktop run build

@@ -44,6 +44,13 @@ pub fn export_diagnostics(data_dir: &Path) -> Result<String> {
         ));
     }
 
+    report.push_str("\ncaches:\n");
+    for instance in store.list_cache_instances()? {
+        report.push_str(&format!(
+            "{} {} 127.0.0.1:{} {}\n",
+            instance.id, instance.package_id, instance.port, instance.state
+        ));
+    }
     report.push_str("\nprojects:\n");
     let projects = list_project_views(data_dir)?;
     if projects.is_empty() {

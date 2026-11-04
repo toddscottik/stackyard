@@ -319,6 +319,18 @@ pub fn remove_package(data_dir: &Path, id: &str) -> Result<()> {
         });
     }
     let path = PathBuf::from(&package.path);
+    if store
+        .list_cache_instances()?
+        .iter()
+        .any(|instance| instance.package_id == id)
+    {
+        return Err(Error::NotRemovable {
+            id: id.to_string(),
+            reason:
+                "a cache instance still references this server; stop and forget the instance first"
+                    .into(),
+        });
+    }
     for project in store.list_projects()? {
         if let Some(profile) = crate::php::read_php_profile(data_dir, &project.id)? {
             if profile.executable.starts_with(&path)

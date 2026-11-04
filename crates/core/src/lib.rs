@@ -67,8 +67,8 @@ pub use protocol::{
     Response, SiteView, API_VERSION,
 };
 pub use store::{
-    DbBindingRecord, DbInstanceRecord, PackageRecord, ProcessRecord, ProjectRecord,
-    PublicationRecord, SqliteRecord, Store,
+    CacheInstanceRecord, DbBindingRecord, DbInstanceRecord, PackageRecord, ProcessRecord,
+    ProjectRecord, PublicationRecord, SqliteRecord, Store,
 };
 pub use transport::{recv, send};
 pub use updates::{

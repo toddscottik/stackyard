@@ -58,6 +58,7 @@ impl Front {
         let (mode, service_id, static_dir) = match &site.kind {
             SiteKind::Proxy { service_id } => ("proxy", service_id.clone(), String::new()),
             SiteKind::Static { root } => ("static", String::new(), root.clone()),
+            SiteKind::Php { service_id, root } => ("php", service_id.clone(), root.clone()),
         };
         let store = Store::open(&self.data_dir)?;
         if store
@@ -317,7 +318,11 @@ impl Front {
                 httpd.display()
             ))
         })?;
-        let modules = load_lines(&httpd, &module_dir)?;
+        let modules = load_lines(
+            &httpd,
+            &module_dir,
+            rows.iter().any(|row| row.mode == "php"),
+        )?;
         let ports = self.ports()?;
         let dir = self.apache_dir();
         let cert_dir = self.cert_dir();
@@ -339,7 +344,17 @@ impl Front {
             } else {
                 let live = live_port(&store, &row.project_id, &row.service_id);
                 match load_project_manifest(&self.data_dir, &row.project_id) {
-                    Ok((_, manifest)) => upstream_for(&manifest, &root, live)?.1,
+                    Ok((_, manifest)) => {
+                        // A previously published PHP root must never silently
+                        // become a static root after a manifest edit.
+                        if row.mode == "php"
+                            && !matches!(manifest.site.as_ref().map(|site| &site.kind), Some(SiteKind::Php { service_id, root }) if service_id == &row.service_id && root == &row.static_dir)
+                        {
+                            Upstream::Unavailable
+                        } else {
+                            upstream_for(&manifest, &root, live)?.1
+                        }
+                    }
                     Err(_) => Upstream::Unavailable,
                 }
             };
@@ -376,6 +391,13 @@ impl Front {
         for row in store.list_publications()? {
             let upstream = match row.mode.as_str() {
                 "static" => row.static_dir.clone(),
+                "php" => {
+                    if let Some(port) = live_port(&store, &row.project_id, &row.service_id) {
+                        format!("fcgi://127.0.0.1:{port} ({})", row.static_dir)
+                    } else {
+                        "PHP backend not running (503; source protected)".to_string()
+                    }
+                }
                 _ => {
                     if let Some(port) = live_port(&store, &row.project_id, &row.service_id) {
                         format!("127.0.0.1:{port}")
@@ -558,7 +580,7 @@ fn mime_types(httpd: &Path) -> Option<PathBuf> {
     system.is_file().then_some(system)
 }
 
-fn load_lines(httpd: &Path, module_dir: &Path) -> Result<Vec<(String, String)>> {
+fn load_lines(httpd: &Path, module_dir: &Path, php_sites: bool) -> Result<Vec<(String, String)>> {
     let output = Command::new(httpd)
         .arg("-l")
         .output()
@@ -582,6 +604,7 @@ fn load_lines(httpd: &Path, module_dir: &Path) -> Result<Vec<(String, String)>> 
         ("rewrite_module", "mod_rewrite.so", "mod_rewrite"),
         ("proxy_module", "mod_proxy.so", "mod_proxy.c"),
         ("proxy_http_module", "mod_proxy_http.so", "mod_proxy_http"),
+        ("proxy_fcgi_module", "mod_proxy_fcgi.so", "mod_proxy_fcgi"),
         (
             "proxy_wstunnel_module",
             "mod_proxy_wstunnel.so",
@@ -609,13 +632,16 @@ fn load_lines(httpd: &Path, module_dir: &Path) -> Result<Vec<(String, String)>> 
     ];
     let mut loaded = Vec::new();
     for (name, file, hint) in modules {
+        if name == "proxy_fcgi_module" && !php_sites {
+            continue;
+        }
         if compiled.contains(hint) {
             continue;
         }
         let path = module_dir.join(file);
         if path.is_file() {
             loaded.push((name.to_string(), file.to_string()));
-        } else if required.contains(&name) {
+        } else if required.contains(&name) || (php_sites && name == "proxy_fcgi_module") {
             return Err(Error::InvalidMessage(format!(
                 "required Apache module {file} is missing from {}",
                 module_dir.display()

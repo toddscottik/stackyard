@@ -2,6 +2,8 @@
 
 Status: accepted for the initial Stage 8A implementation, 4 November 2026.
 
+Update: the resumed Windows implementation now includes FastCGI document roots, live PHP-only profile rollout, a verified native memcached extension and the guarded managed server. The initial-slice restrictions below are retained as history and are superseded where stated by [0009-guarded-native-cache.md](0009-guarded-native-cache.md) and its native evidence. Mac execution remains pending.
+
 The existing installer, selections, dependency executor and process supervisor remain the single architecture. PHP is a runtime; a versioned Composer PHAR is a separate tool, always run by selected PHP. Composer install preserves its lockfile semantics; add/remove/selected-update use Composer, and successful mutations run `check-platform-reqs`. Home/cache live under app-owned project state; `COMPOSER_AUTH` remains an environment-based credential mechanism. Global Composer plugins/configuration are not imported automatically.
 
 Extensions have immutable artifact identity and separate project activation. An isolated ini and empty scan directory are generated in an immutable revision, checked by an actual selected-PHP load probe, then activated through one atomic pointer. An OS file lock releases on crashes. Failed candidates keep the active profile. PHP patch switches require matching minor/API/build identity and another real load probe; build/minor mismatches are refused. Cleanup protects active profile artifact roots as well as package selections. Existing installations are referenced and never edited.

@@ -97,6 +97,10 @@ pub fn php_launch_config(
                         profile.scan_dir.display().to_string(),
                     ),
                     ("PHP_CLI_SERVER_WORKERS".into(), String::new()),
+                    (
+                        "PATH".into(),
+                        crate::prepend_path(&php::php_native_directories(&profile)?),
+                    ),
                 ],
             ))
         }
@@ -176,7 +180,7 @@ pub fn php_project_view(data_dir: &Path, project_id: &str) -> Result<PhpProjectV
     Ok(PhpProjectView {
         identity: identity.clone(), profile: php::read_php_profile(data_dir, project_id)?, inventory,
         available: catalog.into_iter().filter(|item| php::php_abi_compatible(&item.abi, &identity)).collect(),
-        limitations: "Extension downloads require a publisher digest and exact ABI metadata. No memcached client pin is approved yet. Managed Memcached is a separate server capability. macOS PHP/artifact launches remain pending.".into(),
+        limitations: "Native extensions require compatible PHP builds and their native libraries. Managed Memcached is a separate server capability. macOS PHP/artifact launches remain pending.".into(),
     })
 }
 
@@ -185,13 +189,17 @@ pub fn apply_project_php_profile(
     project_id: &str,
     names: &[String],
 ) -> Result<PhpProjectView> {
-    let project = crate::project_view(data_dir, project_id)?;
-    crate::require_startable(&project)?;
+    // The engine's supervisor serializes rollout and owns affected worker
+    // restart/rollback. This primitive validates and atomically promotes ini.
+    let _ = crate::project_view(data_dir, project_id)?;
     let view = php_project_view(data_dir, project_id)?;
     let mut artifacts = Vec::new();
     for name in names {
-        php::validate_php_extension_name(name)?;
-        let matches: Vec<_> = view.inventory.iter().filter(|a| a.name == *name).collect();
+        let mut matches: Vec<_> = view.inventory.iter().filter(|a| a.id == *name).collect();
+        if matches.is_empty() {
+            php::validate_php_extension_name(name)?;
+            matches = view.inventory.iter().filter(|a| a.name == *name).collect();
+        }
         if matches.len() != 1 {
             return Err(Error::InvalidMessage(format!(
                 "extension {name} is missing or ambiguous; choose an installed compatible artifact"

@@ -41,6 +41,20 @@ pub enum Command {
     MemcachedProbe {
         endpoint: crate::memcached::MemcachedEndpoint,
     },
+    CacheList,
+    CacheCreate {
+        package_id: String,
+        port: u16,
+    },
+    CacheStart {
+        instance_id: String,
+    },
+    CacheStop {
+        instance_id: String,
+    },
+    CacheForget {
+        instance_id: String,
+    },
     Discover,
     StartInstall {
         catalog_id: String,
@@ -225,6 +239,9 @@ pub struct Response {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Outcome {
+    Caches {
+        instances: Vec<crate::store::CacheInstanceRecord>,
+    },
     Php {
         view: Box<crate::php_project::PhpProjectView>,
     },

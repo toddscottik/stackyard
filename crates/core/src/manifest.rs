@@ -97,6 +97,7 @@ pub struct ServiceSpec {
 pub enum SiteKind {
     Proxy { service_id: String },
     Static { root: String },
+    Php { service_id: String, root: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -259,6 +260,36 @@ fn validate_site(name: &str, services: &[ServiceSpec], raw: RawSite) -> Result<S
     };
     let has_service = raw.service.is_some();
     let has_root = raw.root.is_some();
+    if let Some(handler) = raw.handler.as_deref() {
+        if handler != "php" {
+            return Err(Error::InvalidManifest {
+                detail: format!("site handler {handler:?} is not supported"),
+            });
+        }
+        let (Some(service_id), Some(root)) = (raw.service, raw.root) else {
+            return Err(Error::InvalidManifest {
+                detail: "PHP site needs handler = php, service and document root".into(),
+            });
+        };
+        let service = services
+            .iter()
+            .find(|service| service.id == service_id)
+            .ok_or_else(|| Error::InvalidManifest {
+                detail: format!("PHP site references unknown service {service_id}"),
+            })?;
+        if service.runtime != RuntimeRole::Php
+            || service.command.first().map(String::as_str) != Some("php-cgi")
+        {
+            return Err(Error::InvalidManifest {
+                detail: "PHP document roots need a selected php-cgi service".into(),
+            });
+        }
+        let _ = relative_directory(&root)?;
+        return Ok(SiteSpec {
+            host,
+            kind: SiteKind::Php { service_id, root },
+        });
+    }
     let kind = match (raw.service, raw.root) {
         (Some(service_id), None) => {
             if !services.iter().any(|service| service.id == service_id) {
@@ -492,6 +523,8 @@ struct RawManifest {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSite {
+    #[serde(default)]
+    handler: Option<String>,
     #[serde(default)]
     host: Option<String>,
     #[serde(default)]

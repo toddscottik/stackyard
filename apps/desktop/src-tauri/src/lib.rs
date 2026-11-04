@@ -50,7 +50,12 @@ pub fn run() {
             commands::php_status,
             commands::php_apply_profile,
             commands::php_install_extension,
-            commands::memcached_probe
+            commands::memcached_probe,
+            commands::caches_status,
+            commands::cache_create,
+            commands::cache_start,
+            commands::cache_stop,
+            commands::cache_forget
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Show Stackyard", true, None::<&str>)?;

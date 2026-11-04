@@ -1,6 +1,6 @@
 {
-  "revision": 2,
-  "note": "Runnable catalog. Windows payloads matched publisher digests on 31 October 2026. macOS arm64 Node, CPython, uv, and pnpm matched publisher digests and launched on macOS 14.5 on 3 November 2026. Apache, MySQL, and PostgreSQL stay out on macOS.",
+  "revision": 3,
+  "note": "Publisher-verified target artifacts. Windows PHP/Composer/memcached extensions checked 4 November 2026; managed Memcached requires the engine exclusive-TCP/private-Unix-socket provider, never direct binary TCP mode. Mac Node/Python/uv/pnpm retain 3 November evidence; Mac servers/PHP remain unapproved.",
   "news": [
     {
       "id": "upstream-releases-are-not-packages",
@@ -206,6 +206,37 @@
       "launch": "composer.phar",
       "version_args": [
         "--version"
+      ]
+    },
+    {
+      "id": "php-8.5.11-windows-x64",
+      "kind": "runtime",
+      "name": "php",
+      "version": "8.5.11",
+      "target": "windows-x64",
+      "format": "zip",
+      "url": "https://downloads.php.net/~windows/releases/archives/php-8.5.11-nts-Win32-vs17-x64.zip",
+      "sha256": "0ea96e0d2b9b737a6036f05cf4e95c49313faa6d0f27bd97edb2742503f0c043",
+      "digest_source": "https://downloads.php.net/~windows/releases/archives/php-8.5.11-nts-Win32-vs17-x64.zip.spdx.json",
+      "launch": "php.exe",
+      "version_args": [
+        "-n",
+        "-v"
+      ]
+    },
+    {
+      "id": "memcached-1.6.8-windows-x64",
+      "kind": "server",
+      "name": "memcached",
+      "version": "1.6.8",
+      "target": "windows-x64",
+      "format": "zip",
+      "url": "https://github.com/jefyt/memcached-windows/releases/download/1.6.8_mingw_libressl/memcached-1.6.8-win64-mingw.zip",
+      "sha256": "48ec62cef718f0d73698414b783c0e4a69821013553ca00afe0eed324eb5994b",
+      "digest_source": "https://api.github.com/repos/jefyt/memcached-windows/releases/tags/1.6.8_mingw_libressl",
+      "launch": "memcached-1.6.8-win64-mingw/bin/memcached.exe",
+      "version_args": [
+        "-h"
       ]
     }
   ]

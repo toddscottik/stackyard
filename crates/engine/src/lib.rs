@@ -1,5 +1,6 @@
 //! Per-user engine process. Desktop and CLI are clients of [`serve`].
 
+mod cache;
 mod control;
 mod database;
 mod endpoint;
@@ -26,6 +27,7 @@ use supervisor::Supervisor;
 use tasks::TaskBoard;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
+pub use cache::Caches;
 pub use front::Front;
 pub use stackyard_core::Error as EngineError;
 
@@ -45,9 +47,11 @@ async fn listen(data_dir: PathBuf) -> Result<()> {
     let supervisor = supervisor::new(data_dir.clone());
     let front = Arc::new(front::Front::new(data_dir.clone()));
     let databases = Arc::new(database::Databases::new(data_dir.clone()));
+    let caches = cache::Caches::new(data_dir.clone());
     supervisor.reconcile()?;
     reconcile_interrupted(&data_dir)?;
     let mut endpoint = endpoint::Endpoint::bind(&data_dir)?;
+    caches.reconcile()?;
     loop {
         let mut client = match endpoint.accept().await {
             Ok(client) => client,
@@ -66,6 +70,7 @@ async fn listen(data_dir: PathBuf) -> Result<()> {
             &supervisor,
             &front,
             &databases,
+            &caches,
         )
         .await
         {
@@ -92,6 +97,7 @@ async fn handle_client<S>(
     supervisor: &Arc<Supervisor>,
     front: &Arc<front::Front>,
     databases: &Arc<database::Databases>,
+    caches: &Arc<cache::Caches>,
 ) -> Result<bool>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -101,7 +107,7 @@ where
         recv(&mut reader).await?
     };
     let response = match dispatch(
-        &request, store, data_dir, jobs, tasks, supervisor, front, databases,
+        &request, store, data_dir, jobs, tasks, supervisor, front, databases, caches,
     )
     .await
     {
@@ -136,6 +142,7 @@ async fn dispatch(
     supervisor: &Arc<Supervisor>,
     front: &front::Front,
     databases: &database::Databases,
+    caches: &Arc<cache::Caches>,
 ) -> Result<Outcome> {
     check_api_version(request.v)?;
     match &request.cmd {
@@ -160,6 +167,7 @@ async fn dispatch(
             })
         }
         Command::Stop => {
+            caches.shutdown();
             databases.shutdown();
             front.shutdown();
             supervisor.shutdown();
@@ -180,9 +188,11 @@ async fn dispatch(
             project_id,
             extensions,
         } => Ok(Outcome::Php {
-            view: Box::new(stackyard_core::php_project::apply_project_php_profile(
-                data_dir, project_id, extensions,
-            )?),
+            view: Box::new(supervisor.reconfigure_php(project_id, || {
+                stackyard_core::php_project::apply_project_php_profile(
+                    data_dir, project_id, extensions,
+                )
+            })?),
         }),
         Command::PhpInstallExtension {
             project_id,
@@ -206,6 +216,11 @@ async fn dispatch(
                 std::time::Duration::from_secs(3),
             )?,
         }),
+        Command::CacheList => caches.list(),
+        Command::CacheCreate { package_id, port } => caches.create(package_id, *port),
+        Command::CacheStart { instance_id } => caches.start(instance_id),
+        Command::CacheStop { instance_id } => caches.stop(instance_id),
+        Command::CacheForget { instance_id } => caches.forget(instance_id),
         Command::Discover => Ok(Outcome::Discovered {
             items: discover_candidates()
                 .into_iter()

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use stackyard_core::{
     append_log, load_project_manifest, log_tail, project_view, require_startable, service_launch,
     service_log_path, start_order, Error, ProcessRecord, ProjectRecord, ProjectView, RestartPolicy,
-    Result, ServiceSpec, Store,
+    Result, RuntimeRole, ServiceSpec, Store,
 };
 
 use crate::group::{self, GroupProcess};
@@ -21,6 +21,7 @@ pub struct Supervisor {
     cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
     stops: Mutex<HashMap<String, Arc<AtomicBool>>>,
     live: Mutex<HashMap<String, Live>>,
+    operations: Mutex<HashSet<String>>,
 }
 
 struct Live {
@@ -31,6 +32,20 @@ struct Live {
     job: Arc<group::JobGuard>,
 }
 
+struct ProjectOperation<'a> {
+    operations: &'a Mutex<HashSet<String>>,
+    project: String,
+}
+
+impl Drop for ProjectOperation<'_> {
+    fn drop(&mut self) {
+        self.operations
+            .lock()
+            .expect("operations")
+            .remove(&self.project);
+    }
+}
+
 pub fn new(data_dir: PathBuf) -> Arc<Supervisor> {
     Arc::new(Supervisor {
         data_dir,
@@ -38,6 +53,7 @@ pub fn new(data_dir: PathBuf) -> Arc<Supervisor> {
         cancels: Mutex::new(HashMap::new()),
         stops: Mutex::new(HashMap::new()),
         live: Mutex::new(HashMap::new()),
+        operations: Mutex::new(HashSet::new()),
     })
 }
 
@@ -67,6 +83,7 @@ impl Supervisor {
     }
 
     pub fn start(self: &Arc<Self>, project_id: &str) -> Result<ProjectView> {
+        let _operation = self.operation(project_id)?;
         if self.shutdown.load(Ordering::Relaxed) {
             return Err(Error::OperationFailed("the engine is stopping".to_string()));
         }
@@ -122,6 +139,11 @@ impl Supervisor {
     }
 
     pub fn stop(&self, project_id: &str) -> Result<ProjectView> {
+        let _operation = self.operation(project_id)?;
+        self.stop_inner(project_id)
+    }
+
+    fn stop_inner(&self, project_id: &str) -> Result<ProjectView> {
         self.request_halt(project_id);
         self.signal_project(project_id);
         let started = Instant::now();
@@ -161,6 +183,201 @@ impl Supervisor {
         self.start(project_id)
     }
 
+    /// Validate/promote a candidate before disturbing a worker. Only PHP
+    /// workers live at entry are restarted, on their existing observed ports.
+    pub fn reconfigure_php<T, F>(self: &Arc<Self>, project_id: &str, apply: F) -> Result<T>
+    where
+        F: FnOnce() -> Result<T>,
+    {
+        let _operation = self.operation(project_id)?;
+        if self.shutdown.load(Ordering::Relaxed) {
+            return Err(Error::OperationFailed("the engine is stopping".into()));
+        }
+        let (project, manifest) = load_project_manifest(&self.data_dir, project_id)?;
+        let rows = Store::open(&self.data_dir)?.list_processes(project_id)?;
+        if self
+            .cancels
+            .lock()
+            .expect("cancels")
+            .contains_key(project_id)
+            || rows
+                .iter()
+                .any(|row| matches!(row.state.as_str(), "starting" | "orphaned"))
+        {
+            return Err(Error::ProjectBusy {
+                id: project_id.into(),
+                state:
+                    "starting or orphaned; settle or stop the project before changing PHP profiles"
+                        .into(),
+            });
+        }
+        let mut workers = Vec::new();
+        for id in start_order(&manifest.services)? {
+            let service = manifest.service(&id).expect("ordered service");
+            if service.runtime != RuntimeRole::Php {
+                continue;
+            }
+            let Some(row) = rows
+                .iter()
+                .find(|row| row.service_id == id && row.state == "running")
+            else {
+                continue;
+            };
+            let key = live_key(project_id, &id);
+            let owned = self
+                .live
+                .lock()
+                .expect("live")
+                .get(&key)
+                .is_some_and(|live| {
+                    Some(i64::from(live.pid)) == row.pid
+                        && group::same_process(
+                            &live.identity,
+                            group::process_identity(live.pid).as_deref(),
+                        )
+                });
+            if !owned {
+                return Err(Error::ProjectBusy { id: project_id.into(), state: format!("PHP service {id} is not owned or is exiting; refresh status before retrying") });
+            }
+            let port = row
+                .port
+                .and_then(|port| u16::try_from(port).ok())
+                .filter(|port| *port != 0)
+                .ok_or_else(|| {
+                    Error::OperationFailed(format!("PHP service {id} has no valid observed port"))
+                })?;
+            let mut service = service.clone();
+            service.port = port;
+            workers.push(service);
+        }
+        let previous = stackyard_core::php::read_php_profile(&self.data_dir, project_id)?;
+        let result = match apply() {
+            Ok(result) => result,
+            Err(error) => {
+                if stackyard_core::php::read_php_profile(&self.data_dir, project_id)? != previous {
+                    stackyard_core::php::rollback_php_profile(&self.data_dir, project_id, previous.as_ref())
+                        .map_err(|rollback| Error::OperationFailed(format!("PHP candidate failed: {error}; restoring the prior profile also failed: {rollback}; current workers were left running")))?;
+                }
+                return Err(error);
+            }
+        };
+        if workers.is_empty() {
+            return Ok(result);
+        }
+        let rollout = self
+            .stop_php_workers(&project, &workers)
+            .and_then(|()| self.start_php_workers(&project, &workers));
+        if let Err(error) = rollout {
+            let cleanup = self.stop_php_workers(&project, &workers);
+            let restored = stackyard_core::php::rollback_php_profile(
+                &self.data_dir,
+                project_id,
+                previous.as_ref(),
+            );
+            let outcome = match (cleanup, restored) {
+                (Ok(()), Ok(())) => match self.start_php_workers(&project, &workers) {
+                    Ok(()) => "previous profile restored and PHP workers recovered on their original ports".to_string(),
+                    Err(recovery) => {
+                        let _ = self.stop_php_workers(&project, &workers);
+                        format!("previous profile restored, but PHP worker recovery failed: {recovery}; inspect project logs and start the project again")
+                    }
+                },
+                (cleanup, restore) => format!("rollback could not recover workers (stop: {}; profile restore: {}); inspect project logs and stop the project before retrying",
+                    cleanup.map(|()| "succeeded".into()).unwrap_or_else(|e| e.to_string()),
+                    restore.map(|()| "succeeded".into()).unwrap_or_else(|e| e.to_string())),
+            };
+            return Err(Error::OperationFailed(format!(
+                "PHP profile rollout failed: {error}; {outcome}"
+            )));
+        }
+        Ok(result)
+    }
+
+    fn operation(&self, project_id: &str) -> Result<ProjectOperation<'_>> {
+        if !self
+            .operations
+            .lock()
+            .expect("operations")
+            .insert(project_id.into())
+        {
+            return Err(Error::ProjectBusy {
+                id: project_id.into(),
+                state: "being reconfigured or changed by another lifecycle operation".into(),
+            });
+        }
+        Ok(ProjectOperation {
+            operations: &self.operations,
+            project: project_id.into(),
+        })
+    }
+
+    fn stop_php_workers(&self, project: &ProjectRecord, workers: &[ServiceSpec]) -> Result<()> {
+        let rows = Store::open(&self.data_dir)?.list_processes(&project.id)?;
+        for service in workers.iter().rev() {
+            if let Some(row) = rows.iter().find(|row| row.service_id == service.id) {
+                self.stop_row(row);
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let live = self.live.lock().expect("live");
+            let busy = workers
+                .iter()
+                .any(|service| live.contains_key(&live_key(&project.id, &service.id)));
+            drop(live);
+            if !busy {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(Error::OperationFailed(
+                    "PHP workers did not release their owned processes within 5s".into(),
+                ));
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        for service in workers {
+            self.mark_state(
+                project,
+                service,
+                "stopped",
+                None,
+                None,
+                None,
+                Some(i64::from(service.port)),
+                None,
+                "PHP profile rollout",
+            )?;
+        }
+        Ok(())
+    }
+
+    fn start_php_workers(
+        self: &Arc<Self>,
+        project: &ProjectRecord,
+        workers: &[ServiceSpec],
+    ) -> Result<()> {
+        let cancel = AtomicBool::new(false);
+        for service in workers {
+            self.mark_state(
+                project,
+                service,
+                "starting",
+                None,
+                None,
+                None,
+                Some(i64::from(service.port)),
+                None,
+                "PHP profile rollout",
+            )?;
+            if !self.bring_up(project, service, &cancel)? {
+                return Err(Error::OperationFailed(
+                    "PHP profile rollout was cancelled while starting workers".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::Relaxed);
         let project_ids: Vec<String> = self
@@ -183,7 +400,7 @@ impl Supervisor {
             return;
         };
         for project in projects {
-            let _ = self.stop(&project.id);
+            let _ = self.stop_inner(&project.id);
         }
     }
 
@@ -403,7 +620,6 @@ impl Supervisor {
             loop {
                 let status = group.child.wait();
                 group.finish_io();
-                supervisor.forget(&key);
                 if stop.load(Ordering::Acquire) || supervisor.shutdown.load(Ordering::Relaxed) {
                     let _ = supervisor.mark_state(
                         &project,
@@ -416,6 +632,7 @@ impl Supervisor {
                         None,
                         "stopped",
                     );
+                    supervisor.forget(&key);
                     return;
                 }
                 let detail = match status {
@@ -441,6 +658,7 @@ impl Supervisor {
                             None,
                             "stopped",
                         );
+                        supervisor.forget(&key);
                         return;
                     }
                     let Ok(launch) = service_launch(
@@ -461,6 +679,7 @@ impl Supervisor {
                             None,
                             &detail,
                         );
+                        supervisor.forget(&key);
                         return;
                     };
                     let Ok(next) = spawn_grouped(
@@ -481,6 +700,7 @@ impl Supervisor {
                             None,
                             &detail,
                         );
+                        supervisor.forget(&key);
                         return;
                     };
                     supervisor.remember(&key, &next);
@@ -509,6 +729,7 @@ impl Supervisor {
                     None,
                     &detail,
                 );
+                supervisor.forget(&key);
                 return;
             }
         });
@@ -731,14 +952,29 @@ fn wait_ready(
                 };
             }
         }
-        if http_ready(port, &service.ready_path) {
+        let fastcgi = service.runtime == RuntimeRole::Php
+            && service
+                .command
+                .first()
+                .is_some_and(|command| command == "php-cgi");
+        let ready = if fastcgi {
+            TcpStream::connect_timeout(
+                &SocketAddr::from(([127, 0, 0, 1], port)),
+                Duration::from_millis(200),
+            )
+            .is_ok()
+        } else {
+            http_ready(port, &service.ready_path)
+        };
+        if ready {
             return Wait::Ready;
         }
         if Instant::now() >= deadline {
             return Wait::Exited {
                 detail: format!(
-                    "not ready at http://127.0.0.1:{port}{} within {}s\n{}",
-                    service.ready_path,
+                    "not ready at {}127.0.0.1:{port}{} within {}s\n{}",
+                    if fastcgi { "tcp://" } else { "http://" },
+                    if fastcgi { "" } else { &service.ready_path },
                     service.ready_timeout_secs,
                     log_tail(log_path, 800)
                 ),

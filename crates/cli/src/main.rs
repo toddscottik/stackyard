@@ -337,6 +337,7 @@ async fn run() -> stackyard_core::Result<()> {
             Ok(())
         }
         [cmd, rest @ ..] if cmd == "db" => db_command(&data_dir, rest).await,
+        [cmd, rest @ ..] if cmd == "cache" => cache_command(&data_dir, rest).await,
         [cmd, project, path] if cmd == "sqlite" => {
             let dir = ensure_engine(&data_dir).await?;
             print_outcome(
@@ -468,7 +469,59 @@ async fn php_command(dir: &std::path::Path, args: &[String]) -> stackyard_core::
         [action, project, id] if action == "install-extension" => Command::PhpInstallExtension { project_id: project.clone(), catalog_id: id.clone() },
         _ => return Err(stackyard_core::Error::InvalidMessage("usage: stackyard php status PROJECT | profile PROJECT [EXTENSION...] | install-extension PROJECT CATALOG_ID".into())),
     };
-    print_outcome(&roundtrip_within(dir, command, std::time::Duration::from_secs(45)).await?);
+    let outcome = roundtrip_within(dir, command, std::time::Duration::from_secs(120)).await?;
+    if let Outcome::Operation { id, .. } = &outcome {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(600);
+        loop {
+            let status = roundtrip(
+                dir,
+                Command::InstallStatus {
+                    operation_id: id.clone(),
+                },
+            )
+            .await?;
+            if let Outcome::Operation { state, message, .. } = &status {
+                if state != "running" {
+                    print_outcome(&status);
+                    if state != "succeeded" {
+                        return Err(stackyard_core::Error::OperationFailed(message.clone()));
+                    }
+                    break;
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                let _ = roundtrip(
+                    dir,
+                    Command::CancelInstall {
+                        operation_id: id.clone(),
+                    },
+                )
+                .await;
+                return Err(stackyard_core::Error::OperationFailed(
+                    "extension download timed out and cancellation was requested".into(),
+                ));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    } else {
+        print_outcome(&outcome);
+    }
+    Ok(())
+}
+
+async fn cache_command(data_dir: &std::path::Path, args: &[String]) -> stackyard_core::Result<()> {
+    let command = match args {
+        [] => Command::CacheList,
+        [action] if action == "list" => Command::CacheList,
+        [action,package] if action == "create" => Command::CacheCreate {package_id:package.clone(),port:0},
+        [action,package,port] if action == "create" => Command::CacheCreate {package_id:package.clone(),port:port.parse().map_err(|_|stackyard_core::Error::InvalidMessage("cache port must be numeric".into()))?},
+        [action,id] if action == "start" => Command::CacheStart {instance_id:id.clone()},
+        [action,id] if action == "stop" => Command::CacheStop {instance_id:id.clone()},
+        [action,id] if action == "forget" => Command::CacheForget {instance_id:id.clone()},
+        _ => return Err(stackyard_core::Error::InvalidMessage("usage: stackyard cache list | create PACKAGE_ID [PORT] | start ID | stop ID | forget ID".into())),
+    };
+    let dir = ensure_engine(data_dir).await?;
+    print_outcome(&roundtrip_within(&dir, command, std::time::Duration::from_secs(30)).await?);
     Ok(())
 }
 
@@ -742,6 +795,11 @@ fn print_help() {
          stackyard php profile PROJECT [EXTENSION...]\n  \
          stackyard php install-extension PROJECT CATALOG_ID\n  \
          stackyard memcached-probe NUMERIC_IP PORT\n  \
+         stackyard cache list\n  \
+         stackyard cache create PACKAGE_ID [PORT]\n  \
+         stackyard cache start INSTANCE\n  \
+         stackyard cache stop INSTANCE\n  \
+         stackyard cache forget INSTANCE\n  \
          stackyard diagnostics [PATH]\n  \
          stackyard updates\n  \
          stackyard cleanup\n  \
@@ -773,6 +831,25 @@ fn print_help() {
 
 fn print_outcome(outcome: &Outcome) {
     match outcome {
+        Outcome::Caches { instances } => {
+            if instances.is_empty() {
+                println!("caches: none");
+            }
+            for instance in instances {
+                println!(
+                    "cache: {} {} 127.0.0.1:{} {} pid={} {}",
+                    instance.id,
+                    instance.package_id,
+                    instance.port,
+                    instance.state,
+                    instance
+                        .pid
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "-".into()),
+                    instance.detail
+                );
+            }
+        }
         Outcome::Php { view } => {
             println!(
                 "PHP {} {} {}",

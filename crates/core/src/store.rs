@@ -6,7 +6,19 @@ use rusqlite::{params, Connection};
 use crate::error::{Error, Result};
 use crate::protocol::{validate_setting_key, validate_setting_value};
 
-const SCHEMA_VERSION: u32 = 6;
+const SCHEMA_VERSION: u32 = 7;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CacheInstanceRecord {
+    pub id: String,
+    pub package_id: String,
+    pub port: u16,
+    pub state: String,
+    pub pid: Option<u32>,
+    pub identity: Option<String>,
+    pub socket_path: String,
+    pub detail: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PackageRecord {
@@ -814,6 +826,69 @@ impl Store {
             tx.commit()
                 .map_err(|source| Error::database("commit migration 6", source))?;
         }
+        if self.schema_version()? < 7 {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .map_err(|source| Error::database("begin migration 7", source))?;
+            tx.execute_batch(
+                "CREATE TABLE cache_instances (
+                id TEXT PRIMARY KEY, package_id TEXT NOT NULL, port INTEGER NOT NULL,
+                state TEXT NOT NULL, pid INTEGER, identity TEXT, socket_path TEXT NOT NULL,
+                detail TEXT NOT NULL, FOREIGN KEY(package_id) REFERENCES packages(id)
+            );",
+            )
+            .map_err(|source| Error::database("apply migration 7", source))?;
+            tx.execute(
+                "INSERT INTO schema_migrations (version,applied_at) VALUES (7,?1)",
+                params![now_unix()],
+            )
+            .map_err(|source| Error::database("record migration 7", source))?;
+            tx.commit()
+                .map_err(|source| Error::database("commit migration 7", source))?;
+        }
+        Ok(())
+    }
+
+    pub fn list_cache_instances(&self) -> Result<Vec<CacheInstanceRecord>> {
+        let mut statement = self.conn.prepare("SELECT id,package_id,port,state,pid,identity,socket_path,detail FROM cache_instances ORDER BY id")
+            .map_err(|source| Error::database("prepare cache instances",source))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(CacheInstanceRecord {
+                    id: row.get(0)?,
+                    package_id: row.get(1)?,
+                    port: row.get(2)?,
+                    state: row.get(3)?,
+                    pid: row.get(4)?,
+                    identity: row.get(5)?,
+                    socket_path: row.get(6)?,
+                    detail: row.get(7)?,
+                })
+            })
+            .map_err(|source| Error::database("query cache instances", source))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|source| Error::database("read cache instances", source))
+    }
+
+    pub fn get_cache_instance(&self, id: &str) -> Result<Option<CacheInstanceRecord>> {
+        Ok(self
+            .list_cache_instances()?
+            .into_iter()
+            .find(|instance| instance.id == id))
+    }
+
+    pub fn upsert_cache_instance(&self, record: &CacheInstanceRecord) -> Result<()> {
+        self.conn.execute("INSERT INTO cache_instances (id,package_id,port,state,pid,identity,socket_path,detail) VALUES (?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(id) DO UPDATE SET package_id=excluded.package_id,port=excluded.port,state=excluded.state,pid=excluded.pid,identity=excluded.identity,socket_path=excluded.socket_path,detail=excluded.detail",
+            params![record.id,record.package_id,record.port,record.state,record.pid,record.identity,record.socket_path,record.detail])
+            .map_err(|source|Error::database("write cache instance",source))?;
+        Ok(())
+    }
+
+    pub fn delete_cache_instance(&self, id: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM cache_instances WHERE id=?1", params![id])
+            .map_err(|source| Error::database("forget cache instance", source))?;
         Ok(())
     }
 
@@ -1109,7 +1184,7 @@ mod tests {
         let dir = temp_dir();
         {
             let store = Store::open(&dir).expect("open");
-            assert_eq!(store.schema_version().expect("version"), 6);
+            assert_eq!(store.schema_version().expect("version"), 7);
             store.put("display_name", "Ada").expect("put");
             assert_eq!(
                 store.last_event().expect("event").as_deref(),
@@ -1117,7 +1192,7 @@ mod tests {
             );
         }
         let store = Store::open(&dir).expect("reopen");
-        assert_eq!(store.schema_version().expect("version"), 6);
+        assert_eq!(store.schema_version().expect("version"), 7);
         assert_eq!(
             store.get("display_name").expect("get").as_deref(),
             Some("Ada")

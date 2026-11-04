@@ -529,15 +529,14 @@ async fn selected_php_profiles_composer_http_and_recovery() {
     assert_ne!(port_first, port_second);
     assert!(http(port_first).contains("openssl:on|persistent-project-data"));
     assert!(http(port_second).contains("openssl:off|persistent-project-data"));
-    assert!(roundtrip(
-        &engine.dir,
-        Command::PhpApplyProfile {
-            project_id: "php-first".into(),
-            extensions: Vec::new()
-        }
-    )
-    .await
-    .is_err());
+    let active = apply(&engine.dir, "php-first", &["openssl"]).await;
+    let reconfigured = settled(&engine.dir, "php-first").await;
+    assert_eq!(reconfigured.services[0].port, Some(port_first));
+    assert_ne!(reconfigured.services[0].pid, first_running.services[0].pid);
+    assert_eq!(
+        settled(&engine.dir, "php-second").await.services[0].pid,
+        second_running.services[0].pid
+    );
     roundtrip(
         &engine.dir,
         Command::StopProject {

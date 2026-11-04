@@ -28,13 +28,13 @@ pub struct MemcachedProbe {
     pub cleanup_verified: bool,
 }
 
-/// No native server is currently approved for Stackyard-managed installation.
-/// Homebrew's Sonoma arm64 bottle is a candidate, not a verified relocatable bundle.
-pub fn managed_memcached_unavailable(target: &str) -> &'static str {
+/// Windows uses the guarded engine provider. Other targets require independent
+/// artifact/dependency/relocation evidence, not inference from Windows.
+pub fn managed_memcached_unavailable(target: &str) -> Option<&'static str> {
     match target {
-        "windows-x64" => "No approved native Windows x64 Memcached server artifact. An unofficial 1.6.8 build passed set/get but failed occupied-port refusal on Windows 10; upstream does not support Windows builds. Connect an explicitly selected existing endpoint instead.",
-        "macos-arm64" => "Homebrew publishes a Sonoma arm64 Memcached bottle, but its libevent/OpenSSL dependency closure, relocation and macOS 14.5 launch are unverified. Managed installation is unavailable; an existing endpoint is separate.",
-        _ => "No approved Memcached server artifact for this target.",
+        "windows-x64" => None,
+        "macos-arm64" => Some("Homebrew publishes a Sonoma arm64 Memcached bottle, but its libevent/OpenSSL dependency closure, relocation and macOS 14.5 launch are unverified. Managed installation is unavailable; an existing endpoint is separate."),
+        _ => Some("No approved Memcached server artifact for this target."),
     }
 }
 
@@ -410,6 +410,7 @@ mod tests {
             Duration::ZERO
         )
         .is_err());
-        assert!(managed_memcached_unavailable("windows-x64").contains("failed occupied-port"));
+        assert!(managed_memcached_unavailable("windows-x64").is_none());
+        assert!(managed_memcached_unavailable("macos-arm64").is_some());
     }
 }

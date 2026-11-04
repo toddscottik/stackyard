@@ -284,16 +284,20 @@ fn run_dependency(
             };
         }
         let mut env = command.env.clone();
+        let mut path_front = vec![
+            command
+                .program
+                .parent()
+                .unwrap_or(Path::new("."))
+                .to_path_buf(),
+            plan.scope_dir.join("node_modules").join(".bin"),
+        ];
+        if let Some((_, value)) = command.env.iter().find(|(key, _)| key == "PATH") {
+            path_front.extend(std::env::split_paths(value));
+        }
         env.push((
             "PATH".to_string(),
-            stackyard_core::prepend_path(&[
-                command
-                    .program
-                    .parent()
-                    .unwrap_or(Path::new("."))
-                    .to_path_buf(),
-                plan.scope_dir.join("node_modules").join(".bin"),
-            ]),
+            stackyard_core::prepend_path(&path_front),
         ));
         let _ = stackyard_core::append_log(
             &log_path,

@@ -21,6 +21,7 @@ rusqlite = { version = "0.41.1", features = ["bundled", "backup"] }
 getrandom = "0.2.16"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "io-util", "time", "net", "sync"] }
 sha2 = "0.10.9"
+socket2 = { version = "=0.6.5", features = ["all"] }
 md-5 = "0.10.6"
 hex = "0.4.3"
 zip = "2.4.2"

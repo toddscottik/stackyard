@@ -1,8 +1,17 @@
-param([string]$ArtifactRoot = "$PSScriptRoot/../../../.artifacts/S8A-MEMCACHED")
+param(
+    [ValidateSet('Help','Verify')][string]$Action='Help',
+    [string]$ArtifactRoot = "$PSScriptRoot/../../../.artifacts/S8A-MEMCACHED"
+)
+if($Action -eq 'Help') {
+    Write-Output 'Legacy raw TCP negative probe. Help performs no writes/downloads. Use -Action Verify to reproduce the rejected native TCP binding behavior. Use memcached-native.ps1 -Action Verify for accepted guarded-provider tests.'
+    exit 0
+}
 $ErrorActionPreference = 'Stop'
 $artifactUrl = 'https://github.com/jefyt/memcached-windows/releases/download/1.6.8_mingw_libressl/memcached-1.6.8-win64-mingw.zip'
 $expectedSha256 = '48ec62cef718f0d73698414b783c0e4a69821013553ca00afe0eed324eb5994b'
 $taskRoot = [IO.Path]::GetFullPath($ArtifactRoot)
+$allowedRoot = [IO.Path]::GetFullPath("$PSScriptRoot/../../../.artifacts/S8A-MEMCACHED")
+if($taskRoot -ne $allowedRoot -and !$taskRoot.StartsWith($allowedRoot.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)) {throw 'Artifact root must stay in the disposable S8A-MEMCACHED directory'}
 New-Item -ItemType Directory -Force -Path $taskRoot | Out-Null
 $archive = Join-Path $taskRoot 'memcached-1.6.8-win64-mingw.zip'
 if (!(Test-Path -LiteralPath $archive)) { Invoke-WebRequest $artifactUrl -OutFile $archive }

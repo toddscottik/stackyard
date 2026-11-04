@@ -37,7 +37,7 @@ pub async fn php_apply_profile(
             project_id,
             extensions,
         },
-        Duration::from_secs(45),
+        Duration::from_secs(120),
     )
     .await?
     {
@@ -80,6 +80,45 @@ pub async fn memcached_probe(
 
 async fn call(command: Command) -> Result<Outcome, String> {
     call_within(command, Duration::from_secs(5)).await
+}
+
+async fn cache_outcome(
+    command: Command,
+) -> Result<Vec<stackyard_core::CacheInstanceRecord>, String> {
+    match call_within(command, Duration::from_secs(30)).await? {
+        Outcome::Caches { instances } => Ok(instances),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
+pub async fn caches_status() -> Result<Vec<stackyard_core::CacheInstanceRecord>, String> {
+    cache_outcome(Command::CacheList).await
+}
+#[tauri::command]
+pub async fn cache_create(
+    package_id: String,
+    port: u16,
+) -> Result<Vec<stackyard_core::CacheInstanceRecord>, String> {
+    cache_outcome(Command::CacheCreate { package_id, port }).await
+}
+#[tauri::command]
+pub async fn cache_start(
+    instance_id: String,
+) -> Result<Vec<stackyard_core::CacheInstanceRecord>, String> {
+    cache_outcome(Command::CacheStart { instance_id }).await
+}
+#[tauri::command]
+pub async fn cache_stop(
+    instance_id: String,
+) -> Result<Vec<stackyard_core::CacheInstanceRecord>, String> {
+    cache_outcome(Command::CacheStop { instance_id }).await
+}
+#[tauri::command]
+pub async fn cache_forget(
+    instance_id: String,
+) -> Result<Vec<stackyard_core::CacheInstanceRecord>, String> {
+    cache_outcome(Command::CacheForget { instance_id }).await
 }
 
 async fn call_within(command: Command, limit: Duration) -> Result<Outcome, String> {
