@@ -65,6 +65,12 @@ The user explicitly directed continued implementation without waiting for Mac ac
 | S8A-NATIVE-CACHE | Reviewed / Native artifact worker | scripts/verification/windows/php-memcached.ps1; scripts/verification/windows/memcached-native.ps1; docs/evidence/S8A-NATIVE-CACHE.md | Resolve publisher verification/build route for real PHP memcached and safe native server; no guessed pins, no execution before approved provenance/digest |
 | S8A-COMPLETE-INTEGRATE | coordinator | Shared models/protocol/manifest/project/php_project/catalog/CLI/exports/status; new engine cache provider/test files | Freeze interfaces, native server safety, package/profile operations, review and combined native acceptance |
 
+## CI resolver test portability — 5 November 2026
+
+Fixed locally / coordinator. In `crates/core/src/apache.rs`, replaced the assumption that an arbitrary `.localhost` name cannot resolve with fixed loopback/non-loopback IP checks and a separate bounded subdomain lookup check. Production resolver behavior is unchanged; the reported macOS runner correctly returned loopback for that name.
+
+Retested 5 November on Windows 10 build 19045 x64, Rust 1.99.1 (`x86_64-pc-windows-msvc`): `cargo test --workspace --offline` passed (74 core tests); `cargo clippy --workspace --all-targets --offline -- -D warnings`, `rustfmt --check --edition 2021 crates/core/src/apache.rs`, and `git diff --check` passed. The earlier unrelated workspace Clippy warning is resolved in the current baseline. No artifact downloads or native Mac execution were performed. Next: push the portability fix and verify a new Windows/macOS CI run.
+
 | S8A-CACHE-PROVIDER | Reviewed / cache worker | crates/engine/src/cache.rs; crates/engine/tests/cache_transport.rs; docs/evidence/S8A-CACHE-PROVIDER.md | Native private socket/exclusive TCP, crash/retry/cancel/ownership/volatile restart passed |
 
 Windows Stage 8A now has complete native provider acceptance; no Mac pass is implied. Continue Stage 9 without waiting for the deferred target run. See the resumed handoff in IMPLEMENTATION_STATUS.md.

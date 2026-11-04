@@ -687,11 +687,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn localhost_resolves_and_an_unknown_name_does_not_stall() {
+    fn localhost_and_ip_literals_are_classified_by_loopback() {
         assert!(label_resolves_to_loopback("localhost"));
+        assert!(label_resolves_to_loopback("127.0.0.1"));
+        assert!(label_resolves_to_loopback("::1"));
+        assert!(!label_resolves_to_loopback("192.0.2.1"));
+    }
+
+    #[test]
+    fn localhost_subdomain_lookup_does_not_stall() {
         let started = std::time::Instant::now();
-        let resolved = label_resolves_to_loopback("stackyard-missing.localhost");
-        assert!(!resolved);
+        // Some system resolvers map every .localhost name to loopback. Either
+        // result is valid here; the lookup must remain bounded on both paths.
+        let _ = label_resolves_to_loopback("stackyard-missing.localhost");
         assert!(
             started.elapsed() < std::time::Duration::from_secs(1),
             "lookup took {:?}",
