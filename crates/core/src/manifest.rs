@@ -2,11 +2,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ManagerKind {
     Npm,
     Pnpm,
@@ -46,7 +47,8 @@ impl ManagerKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RuntimeRole {
     Node,
     Python,
@@ -72,16 +74,70 @@ impl RuntimeRole {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RestartPolicy {
     Never,
     OnFailure,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvironmentOwnership {
+    Project,
+    Managed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScopeSpec {
+    pub id: String,
+    pub directory: PathBuf,
+    pub runtime: RuntimeRole,
+    pub manager: Option<ManagerKind>,
+    pub lockfile_root: PathBuf,
+    pub environment: EnvironmentOwnership,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointProtocol {
+    Http,
+    Tcp,
+    #[serde(rename = "fastcgi")]
+    FastCgi,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EndpointSpec {
+    pub protocol: EndpointProtocol,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ReadinessSpec {
+    Http {
+        path: String,
+        statuses: Vec<u16>,
+        timeout_secs: u64,
+    },
+    Tcp {
+        timeout_secs: u64,
+    },
+    Process {
+        grace_ms: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServiceSpec {
     pub id: String,
     pub runtime: RuntimeRole,
+    pub scope_id: String,
+    pub endpoint: Option<EndpointSpec>,
+    pub readiness: ReadinessSpec,
     pub command: Vec<String>,
     pub working_directory: PathBuf,
     pub depends_on: Vec<String>,
@@ -93,28 +149,42 @@ pub struct ServiceSpec {
     pub env: Vec<(String, String)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl ServiceSpec {
+    pub fn is_http_endpoint(&self) -> bool {
+        self.endpoint
+            .as_ref()
+            .is_some_and(|endpoint| endpoint.protocol == EndpointProtocol::Http)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SiteKind {
     Proxy { service_id: String },
     Static { root: String },
     Php { service_id: String, root: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SiteSpec {
     pub host: String,
     pub kind: SiteKind,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
+    pub schema: u32,
     pub name: String,
     pub manager: Option<ManagerKind>,
+    pub scopes: Vec<ScopeSpec>,
     pub services: Vec<ServiceSpec>,
     pub site: Option<SiteSpec>,
 }
 
 impl Manifest {
+    pub fn scope(&self, id: &str) -> Option<&ScopeSpec> {
+        self.scopes.iter().find(|scope| scope.id == id)
+    }
     pub fn service(&self, id: &str) -> Option<&ServiceSpec> {
         self.services.iter().find(|service| service.id == id)
     }
@@ -182,6 +252,9 @@ pub fn start_order(services: &[ServiceSpec]) -> Result<Vec<String>> {
 }
 
 fn validate(raw: RawManifest) -> Result<Manifest> {
+    if raw.schema == 2 {
+        return validate_v2(raw);
+    }
     if raw.schema != 1 {
         return Err(Error::InvalidManifest {
             detail: format!(
@@ -189,6 +262,14 @@ fn validate(raw: RawManifest) -> Result<Manifest> {
                 raw.schema
             ),
         });
+    }
+    if !raw.scope.is_empty()
+        || raw
+            .service
+            .iter()
+            .any(|s| !s.scope.is_empty() || s.endpoint.is_some() || s.readiness.is_some())
+    {
+        return invalid("schema 1 cannot contain scope, endpoint, or readiness declarations");
     }
     validate_name(&raw.name)?;
     if raw.service.is_empty()
@@ -225,9 +306,39 @@ fn validate(raw: RawManifest) -> Result<Manifest> {
         Some(site) => Some(validate_site(&raw.name, &services, site)?),
         None => None,
     };
+    let roles: BTreeSet<_> = services.iter().map(|service| service.runtime).collect();
+    let scopes: Vec<_> = roles
+        .iter()
+        .map(|runtime| ScopeSpec {
+            id: if roles.len() == 1 {
+                "default".into()
+            } else {
+                format!("legacy-{}", runtime.as_str())
+            },
+            directory: ".".into(),
+            runtime: *runtime,
+            manager: manager.filter(|manager| manager_matches(*manager, *runtime)),
+            lockfile_root: ".".into(),
+            environment: if *runtime == RuntimeRole::Python {
+                EnvironmentOwnership::Managed
+            } else {
+                EnvironmentOwnership::Project
+            },
+        })
+        .collect();
+    for service in &mut services {
+        service.scope_id = scopes
+            .iter()
+            .find(|scope| scope.runtime == service.runtime)
+            .expect("normalized scope")
+            .id
+            .clone();
+    }
     let manifest = Manifest {
+        schema: raw.schema,
         name: raw.name,
         manager,
+        scopes,
         services,
         site,
     };
@@ -251,6 +362,299 @@ fn validate(raw: RawManifest) -> Result<Manifest> {
         }
     }
     Ok(manifest)
+}
+
+fn validate_v2(raw: RawManifest) -> Result<Manifest> {
+    if raw.manager.is_some() {
+        return invalid("schema 2 uses managers on [[scope]], not at the top level");
+    }
+    validate_name(&raw.name)?;
+    if raw.scope.is_empty() {
+        return invalid("schema 2 requires at least one [[scope]]");
+    }
+    let mut scopes = Vec::with_capacity(raw.scope.len());
+    let mut ids = BTreeSet::new();
+    for scope in raw.scope {
+        validate_ident(&scope.id, "scope id")?;
+        if !ids.insert(scope.id.clone()) {
+            return invalid(&format!("duplicate scope id {}", scope.id));
+        }
+        let runtime = RuntimeRole::parse(&scope.runtime).ok_or_else(|| Error::InvalidManifest {
+            detail: format!("scope {} runtime must be node, python, or php", scope.id),
+        })?;
+        let directory = relative_directory(&scope.directory)?;
+        let lockfile_root = relative_directory(&scope.lockfile_root)?;
+        if !path_contains(&lockfile_root, &directory) {
+            return invalid(&format!(
+                "scope {} lockfile_root must contain its directory",
+                scope.id
+            ));
+        }
+        let manager = Some(parse_manager(scope.manager.as_deref().ok_or_else(
+            || Error::InvalidManifest {
+                detail: format!("scope {} requires an explicit manager", scope.id),
+            },
+        )?)?);
+        if manager.is_some_and(|m| !manager_matches(m, runtime)) {
+            return invalid(&format!(
+                "scope {} manager does not match runtime {}",
+                scope.id,
+                runtime.as_str()
+            ));
+        }
+        let environment = match (scope.environment.as_deref(), runtime) {
+            (None, RuntimeRole::Python) => EnvironmentOwnership::Managed,
+            (None, _) => EnvironmentOwnership::Project,
+            (Some("managed"), RuntimeRole::Python) => EnvironmentOwnership::Managed,
+            (Some("project"), RuntimeRole::Python) => {
+                return invalid("Python scopes require managed environments")
+            }
+            (Some("project"), _) => EnvironmentOwnership::Project,
+            (Some("managed"), _) => {
+                return invalid("managed environments are supported only for Python scopes")
+            }
+            (Some(value), _) => {
+                return invalid(&format!(
+                    "scope environment {value:?} must be project or managed"
+                ))
+            }
+        };
+        scopes.push(ScopeSpec {
+            id: scope.id,
+            directory,
+            runtime,
+            manager,
+            lockfile_root,
+            environment,
+        });
+    }
+    for (i, a) in scopes.iter().enumerate() {
+        for b in scopes.iter().skip(i + 1) {
+            if a.lockfile_root == b.lockfile_root && a.manager != b.manager {
+                return invalid(&format!(
+                    "scopes {} and {} assign conflicting managers to the same lockfile root",
+                    a.id, b.id
+                ));
+            }
+        }
+    }
+    let mut services = Vec::with_capacity(raw.service.len());
+    let mut service_ids = BTreeSet::new();
+    for service in raw.service {
+        if !service_ids.insert(service.id.clone()) {
+            return invalid(&format!("duplicate service id {}", service.id));
+        }
+        let scope = scopes
+            .iter()
+            .find(|s| s.id == service.scope)
+            .ok_or_else(|| Error::InvalidManifest {
+                detail: format!(
+                    "service {} references unknown scope {}",
+                    service.id, service.scope
+                ),
+            })?;
+        let mut normalized = validate_service(RawService {
+            id: service.id,
+            runtime: scope.runtime.as_str().into(),
+            command: service.command,
+            working_directory: service.working_directory,
+            depends_on: service.depends_on,
+            ready_path: "/".into(),
+            ready_timeout_secs: 15,
+            port: 0,
+            restart: service.restart,
+            restart_max: service.restart_max,
+            env: service.env,
+            scope: service.scope.clone(),
+            endpoint: None,
+            readiness: None,
+        })?;
+        if !path_contains(&scope.directory, &normalized.working_directory) {
+            return invalid(&format!(
+                "service {} working_directory must stay within scope {}",
+                normalized.id, scope.id
+            ));
+        }
+        normalized.scope_id = scope.id.clone();
+        normalized.endpoint = service.endpoint.map(validate_endpoint).transpose()?;
+        let readiness = service.readiness.ok_or_else(|| Error::InvalidManifest {
+            detail: format!(
+                "service {} requires an explicit readiness table",
+                normalized.id
+            ),
+        })?;
+        normalized.readiness =
+            validate_readiness(readiness, normalized.endpoint.as_ref(), &normalized.id)?;
+        if normalized.endpoint.is_none() && normalized.command.iter().any(|a| a.contains("{port}"))
+        {
+            return invalid(&format!(
+                "service {} uses {{port}} without an endpoint",
+                normalized.id
+            ));
+        }
+        if normalized.endpoint.is_some()
+            && normalized.command.iter().any(|a| a.contains("{port}"))
+            && normalized.endpoint.as_ref().unwrap().port != 0
+        {
+            return invalid(&format!(
+                "service {} uses {{port}} with a fixed endpoint port",
+                normalized.id
+            ));
+        }
+        normalized.ready_path = match &normalized.readiness {
+            ReadinessSpec::Http { path, .. } => path.clone(),
+            _ => "/".into(),
+        };
+        normalized.ready_timeout_secs = match &normalized.readiness {
+            ReadinessSpec::Http { timeout_secs, .. } | ReadinessSpec::Tcp { timeout_secs } => {
+                *timeout_secs
+            }
+            ReadinessSpec::Process { .. } => 0,
+        };
+        normalized.port = normalized.endpoint.as_ref().map_or(0, |e| e.port);
+        services.push(normalized);
+    }
+    if services.is_empty() && raw.site.as_ref().and_then(|s| s.root.as_ref()).is_none() {
+        return invalid(
+            "at least one [[service]] is required, or a [site] with root for static files",
+        );
+    }
+    let site = raw
+        .site
+        .map(|site| validate_site(&raw.name, &services, site))
+        .transpose()?;
+    if let Some(SiteSpec {
+        kind: SiteKind::Proxy { service_id },
+        ..
+    }) = &site
+    {
+        let service = services
+            .iter()
+            .find(|s| s.id == *service_id)
+            .expect("site validation checks reference");
+        if !service.is_http_endpoint() {
+            return invalid(&format!(
+                "site proxy service {service_id} must declare an HTTP endpoint"
+            ));
+        }
+    }
+    let manifest = Manifest {
+        schema: 2,
+        name: raw.name,
+        manager: None,
+        scopes,
+        services,
+        site,
+    };
+    let _ = start_order(&manifest.services)?;
+    Ok(manifest)
+}
+
+fn invalid<T>(detail: &str) -> Result<T> {
+    Err(Error::InvalidManifest {
+        detail: detail.to_string(),
+    })
+}
+fn parse_manager(value: &str) -> Result<ManagerKind> {
+    ManagerKind::parse(value).ok_or_else(|| Error::InvalidManifest {
+        detail: format!("manager {value:?} must be npm, pnpm, pip, uv, or composer"),
+    })
+}
+fn path_contains(parent: &Path, child: &Path) -> bool {
+    parent == Path::new(".") || child == parent || child.starts_with(parent)
+}
+fn validate_endpoint(endpoint: RawEndpoint) -> Result<EndpointSpec> {
+    let protocol = match endpoint.protocol.as_str() {
+        "http" => EndpointProtocol::Http,
+        "tcp" => EndpointProtocol::Tcp,
+        "fastcgi" => EndpointProtocol::FastCgi,
+        x => {
+            return invalid(&format!(
+                "endpoint protocol {x:?} must be http, tcp, or fastcgi"
+            ))
+        }
+    };
+    let port = match endpoint.port {
+        RawPort::Auto(s) if s == "auto" => 0,
+        RawPort::Auto(s) => {
+            return invalid(&format!("endpoint port {s:?} must be auto or a number"))
+        }
+        RawPort::Number(p) if p >= 1024 => p,
+        RawPort::Number(p) => {
+            return invalid(&format!("endpoint port {p} must be 1024..=65535 or auto"))
+        }
+    };
+    Ok(EndpointSpec { protocol, port })
+}
+fn validate_readiness(
+    r: RawReadiness,
+    endpoint: Option<&EndpointSpec>,
+    id: &str,
+) -> Result<ReadinessSpec> {
+    let result = match r.kind.as_str() {
+        "http" => {
+            let (Some(path), Some(statuses)) = (r.path, r.statuses) else {
+                return invalid("HTTP readiness requires path and statuses");
+            };
+            if r.grace_ms != 0 {
+                return invalid("HTTP readiness cannot set grace_ms");
+            }
+            validate_ready_path(&path)?;
+            if !(1..=120).contains(&r.timeout_secs)
+                || statuses.is_empty()
+                || statuses.iter().any(|s| !(100..=599).contains(s))
+            {
+                return invalid(
+                    "HTTP readiness needs statuses in 100..=599 and timeout_secs in 1..=120",
+                );
+            }
+            if endpoint.is_none_or(|e| e.protocol != EndpointProtocol::Http) {
+                return invalid(&format!(
+                    "service {id} HTTP readiness requires an HTTP endpoint"
+                ));
+            }
+            ReadinessSpec::Http {
+                path,
+                statuses,
+                timeout_secs: r.timeout_secs,
+            }
+        }
+        "tcp" => {
+            if r.path.is_some() || r.statuses.is_some() || r.grace_ms != 0 {
+                return invalid("TCP readiness cannot set path, statuses, or grace_ms");
+            }
+            if endpoint.is_none() {
+                return invalid(&format!("service {id} TCP readiness requires an endpoint"));
+            }
+            if !(1..=120).contains(&r.timeout_secs) {
+                return invalid("TCP readiness timeout_secs must be 1..=120");
+            }
+            ReadinessSpec::Tcp {
+                timeout_secs: r.timeout_secs,
+            }
+        }
+        "process" => {
+            if endpoint.is_some() {
+                return invalid(&format!(
+                    "service {id} process readiness cannot declare an endpoint"
+                ));
+            }
+            if r.path.is_some() || r.statuses.is_some() || !(1..=30000).contains(&r.grace_ms) {
+                return invalid(
+                    "process readiness requires grace_ms in 1..=30000 and no HTTP fields",
+                );
+            }
+            ReadinessSpec::Process {
+                grace_ms: r.grace_ms,
+            }
+        }
+        k => {
+            return invalid(&format!(
+                "readiness kind {k:?} must be http, tcp, or process"
+            ))
+        }
+    };
+    Ok(result)
 }
 
 fn validate_site(name: &str, services: &[ServiceSpec], raw: RawSite) -> Result<SiteSpec> {
@@ -403,6 +807,30 @@ fn validate_service(raw: RawService) -> Result<ServiceSpec> {
     Ok(ServiceSpec {
         id: raw.id,
         runtime,
+        scope_id: String::new(),
+        endpoint: Some(EndpointSpec {
+            protocol: if raw.command.first().map(String::as_str) == Some("php-cgi")
+                && runtime == RuntimeRole::Php
+            {
+                EndpointProtocol::FastCgi
+            } else {
+                EndpointProtocol::Http
+            },
+            port: raw.port,
+        }),
+        readiness: if raw.command.first().map(String::as_str) == Some("php-cgi")
+            && runtime == RuntimeRole::Php
+        {
+            ReadinessSpec::Tcp {
+                timeout_secs: raw.ready_timeout_secs,
+            }
+        } else {
+            ReadinessSpec::Http {
+                path: raw.ready_path.clone(),
+                statuses: (200..=299).collect(),
+                timeout_secs: raw.ready_timeout_secs,
+            }
+        },
         command: raw.command,
         working_directory,
         depends_on: raw.depends_on,
@@ -413,6 +841,15 @@ fn validate_service(raw: RawService) -> Result<ServiceSpec> {
         restart_max: raw.restart_max,
         env,
     })
+}
+
+fn manager_matches(manager: ManagerKind, runtime: RuntimeRole) -> bool {
+    matches!(
+        (manager, runtime),
+        (ManagerKind::Npm | ManagerKind::Pnpm, RuntimeRole::Node)
+            | (ManagerKind::Pip | ManagerKind::Uv, RuntimeRole::Python)
+            | (ManagerKind::Composer, RuntimeRole::Php)
+    )
 }
 
 fn validate_name(name: &str) -> Result<()> {
@@ -465,7 +902,11 @@ fn validate_ready_path(path: &str) -> Result<()> {
 
 fn relative_directory(value: &str) -> Result<PathBuf> {
     let path = Path::new(value);
-    if path.is_absolute() {
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
+    {
         return Err(Error::InvalidManifest {
             detail: format!("working_directory {value:?} must stay inside the project"),
         });
@@ -517,6 +958,8 @@ struct RawManifest {
     #[serde(default)]
     service: Vec<RawService>,
     #[serde(default)]
+    scope: Vec<RawScope>,
+    #[serde(default)]
     site: Option<RawSite>,
 }
 
@@ -537,6 +980,7 @@ struct RawSite {
 #[serde(deny_unknown_fields)]
 struct RawService {
     id: String,
+    #[serde(default)]
     runtime: String,
     command: Vec<String>,
     #[serde(default = "default_dot")]
@@ -555,6 +999,54 @@ struct RawService {
     restart_max: u32,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    #[serde(default)]
+    scope: String,
+    #[serde(default)]
+    endpoint: Option<RawEndpoint>,
+    #[serde(default)]
+    readiness: Option<RawReadiness>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawScope {
+    id: String,
+    directory: String,
+    runtime: String,
+    #[serde(default)]
+    manager: Option<String>,
+    #[serde(default = "default_dot")]
+    lockfile_root: String,
+    #[serde(default)]
+    environment: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEndpoint {
+    protocol: String,
+    port: RawPort,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawPort {
+    Auto(String),
+    Number(u16),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawReadiness {
+    kind: String,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    statuses: Option<Vec<u16>>,
+    #[serde(default = "default_timeout")]
+    timeout_secs: u64,
+    #[serde(default)]
+    grace_ms: u64,
 }
 
 #[cfg(test)]
@@ -620,5 +1112,135 @@ depends_on = ["a"]
         assert!(parse_manifest(&escape).is_err());
         let restart = format!("{WEB}\nrestart_max = 2\n");
         assert!(parse_manifest(&restart).is_err());
+    }
+
+    const MIXED_V2: &str = r#"
+schema = 2
+name = "mixed-app"
+[[scope]]
+id = "frontend"
+directory = "web"
+runtime = "node"
+manager = "pnpm"
+lockfile_root = "web"
+[[scope]]
+id = "backend"
+directory = "api"
+runtime = "python"
+manager = "uv"
+lockfile_root = "api"
+environment = "managed"
+[[service]]
+id = "web"
+scope = "frontend"
+command = ["pnpm", "dev", "--port", "{port}"]
+working_directory = "web"
+endpoint = { protocol = "http", port = "auto" }
+readiness = { kind = "http", path = "/", statuses = [200, 302], timeout_secs = 12 }
+[[service]]
+id = "worker"
+scope = "backend"
+command = ["python", "worker.py"]
+working_directory = "api"
+readiness = { kind = "process", grace_ms = 500 }
+"#;
+
+    #[test]
+    fn parses_schema_two_scopes_endpoints_and_process_worker() {
+        let manifest = parse_manifest(MIXED_V2).expect("schema 2 manifest");
+        assert_eq!(manifest.schema, 2);
+        assert_eq!(
+            manifest.scope("backend").unwrap().manager,
+            Some(ManagerKind::Uv)
+        );
+        assert_eq!(manifest.service("worker").unwrap().scope_id, "backend");
+        assert_eq!(manifest.service("worker").unwrap().endpoint, None);
+        assert_eq!(
+            manifest
+                .service("web")
+                .unwrap()
+                .endpoint
+                .as_ref()
+                .unwrap()
+                .port,
+            0
+        );
+    }
+
+    #[test]
+    fn rejects_schema_two_invalid_ownership_references_and_readiness() {
+        assert!(
+            parse_manifest(&MIXED_V2.replace("scope = \"frontend\"", "scope = \"missing\""))
+                .is_err()
+        );
+        assert!(
+            parse_manifest(&MIXED_V2.replace("manager = \"pnpm\"", "manager = \"pip\"")).is_err()
+        );
+        assert!(
+            parse_manifest(&MIXED_V2.replace("directory = \"api\"", "directory = \"../api\""))
+                .is_err()
+        );
+        assert!(parse_manifest(
+            &MIXED_V2
+                .replace("port = \"auto\"", "port = 3000")
+                .replace("protocol = \"http\"", "protocol = \"tcp\"")
+        )
+        .is_err());
+        assert!(parse_manifest(&MIXED_V2.replace(
+            "readiness = { kind = \"process\", grace_ms = 500 }",
+            "readiness = { kind = \"http\", path = \"/\", statuses = [200] }"
+        ))
+        .is_err());
+        assert!(
+            parse_manifest(&MIXED_V2.replace("schema = 2", "schema = 2\nmanager = \"pnpm\""))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn schema_two_requires_manager_and_lockfile_root_to_contain_scope() {
+        let no_manager = MIXED_V2
+            .replace("manager = \"pnpm\"\n", "")
+            .replace("manager = \"uv\"\n", "");
+        assert!(parse_manifest(&no_manager).is_err());
+
+        let nested_scope = MIXED_V2
+            .replace("directory = \"web\"", "directory = \"web/client\"")
+            .replace(
+                "working_directory = \"web\"",
+                "working_directory = \"web/client\"",
+            );
+        assert!(parse_manifest(&nested_scope).is_ok());
+
+        let nested_lockfile_root = nested_scope.replace(
+            "lockfile_root = \"web\"",
+            "lockfile_root = \"web/client/packages\"",
+        );
+        assert!(parse_manifest(&nested_lockfile_root).is_err());
+    }
+
+    #[test]
+    fn schema_two_rejects_project_owned_python_environment() {
+        let project_python =
+            MIXED_V2.replace("environment = \"managed\"", "environment = \"project\"");
+        assert!(parse_manifest(&project_python).is_err());
+    }
+
+    #[test]
+    fn schema_one_php_cgi_keeps_fastcgi_tcp_normalization() {
+        let text = r#"schema = 1
+name = "php-app"
+[[service]]
+id = "php"
+runtime = "php"
+command = ["php-cgi", "-b", "127.0.0.1:9000"]
+port = 9000
+"#;
+        let service = parse_manifest(text).unwrap().services.remove(0);
+        assert_eq!(
+            service.endpoint.as_ref().unwrap().protocol,
+            EndpointProtocol::FastCgi
+        );
+        assert_eq!(service.readiness, ReadinessSpec::Tcp { timeout_secs: 15 });
     }
 }

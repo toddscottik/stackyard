@@ -7,6 +7,7 @@ mod endpoint;
 mod front;
 mod group;
 mod jobs;
+mod readiness;
 mod supervisor;
 mod tasks;
 
@@ -116,11 +117,13 @@ where
             id: request.id.clone(),
             result: Some(outcome),
             error: None,
+            error_detail: None,
         },
         Err(err) => Response {
             v: API_VERSION,
             id: request.id.clone(),
             result: None,
+            error_detail: Some(error_diagnostic(&err)),
             error: Some(err.to_string()),
         },
     };
@@ -285,6 +288,123 @@ async fn dispatch(
         Command::ListProjects => Ok(Outcome::Projects {
             projects: list_project_views(data_dir)?,
         }),
+        Command::SelectScopePackage {
+            project_id,
+            scope_id,
+            package_id,
+        } => {
+            stackyard_core::scopes::select_for_scope(data_dir, project_id, scope_id, package_id)?;
+            Ok(Outcome::Project {
+                project: project_view(data_dir, project_id)?,
+            })
+        }
+        Command::PreviewProject { draft } => Ok(Outcome::ProjectPreview {
+            preview: stackyard_core::preview::preview_request(draft, Some(store))?,
+        }),
+        Command::DepInstallScoped {
+            project_id,
+            scope_id,
+        } => control::start_dependency_scoped(
+            tasks,
+            data_dir,
+            project_id,
+            DepAction::Install,
+            None,
+            scope_id,
+        ),
+        Command::DepAddScoped {
+            project_id,
+            scope_id,
+            package,
+        } => control::start_dependency_scoped(
+            tasks,
+            data_dir,
+            project_id,
+            DepAction::Add,
+            Some(package),
+            scope_id,
+        ),
+        Command::DepRemoveScoped {
+            project_id,
+            scope_id,
+            package,
+        } => control::start_dependency_scoped(
+            tasks,
+            data_dir,
+            project_id,
+            DepAction::Remove,
+            Some(package),
+            scope_id,
+        ),
+        Command::DepUpdateScoped {
+            project_id,
+            scope_id,
+            package,
+        } => control::start_dependency_scoped(
+            tasks,
+            data_dir,
+            project_id,
+            DepAction::Update,
+            Some(package),
+            scope_id,
+        ),
+        Command::DepListScoped {
+            project_id,
+            scope_id,
+        } => control::start_dependency_scoped(
+            tasks,
+            data_dir,
+            project_id,
+            DepAction::List,
+            None,
+            scope_id,
+        ),
+        Command::DepRecoverScoped {
+            project_id,
+            scope_id,
+        } => control::start_recovery_scoped(tasks, data_dir, project_id, scope_id),
+        Command::PhpStatusScoped {
+            project_id,
+            scope_id,
+        } => Ok(Outcome::Php {
+            view: Box::new(stackyard_core::php_project::php_scope_view(
+                data_dir,
+                project_id,
+                Some(scope_id),
+            )?),
+        }),
+        Command::PhpApplyProfileScoped {
+            project_id,
+            scope_id,
+            extensions,
+        } => Ok(Outcome::Php {
+            view: Box::new(supervisor.reconfigure_php_scope(project_id, scope_id, || {
+                stackyard_core::php_project::apply_scope_php_profile(
+                    data_dir,
+                    project_id,
+                    Some(scope_id),
+                    extensions,
+                )
+            })?),
+        }),
+        Command::PhpInstallExtensionScoped {
+            project_id,
+            scope_id,
+            catalog_id,
+        } => {
+            let view =
+                stackyard_core::php_project::php_scope_view(data_dir, project_id, Some(scope_id))?;
+            let item = view
+                .available
+                .into_iter()
+                .find(|entry| entry.package.id == *catalog_id)
+                .ok_or_else(|| {
+                    Error::InvalidMessage(
+                        "profile_incompatible: no approved extension for this PHP scope".into(),
+                    )
+                })?;
+            start_package_install(jobs, data_dir, item.package)
+        }
         Command::ProjectStatus { project_id } => Ok(Outcome::Project {
             project: project_view(data_dir, project_id)?,
         }),
@@ -430,6 +550,37 @@ async fn dispatch(
             destination,
         } => databases.sqlite_restore(project_id, Path::new(source), Path::new(destination)),
     }
+}
+
+fn error_diagnostic(error: &Error) -> stackyard_core::preview::Diagnostic {
+    let code = match error {
+        Error::InvalidManifest { .. } => "manifest_invalid",
+        Error::PackageNotFound { .. } => "package_missing",
+        Error::ProjectNotFound { .. } => "project_missing",
+        Error::ProjectBusy { .. } => "project_busy",
+        Error::PortInUse { .. } | Error::FrontPortBusy { .. } => "port_in_use",
+        Error::Cancelled { .. } => "cancelled",
+        Error::InvalidMessage(message) => match message.split(':').next().unwrap_or("") {
+            "scope_unknown" => "scope_unknown",
+            "scope_required" => "scope_required",
+            "path_outside_project" => "path_outside_project",
+            "manager_conflict" => "manager_conflict",
+            "runtime_missing" => "runtime_missing",
+            "tool_missing" => "tool_missing",
+            "profile_incompatible" => "profile_incompatible",
+            _ => "invalid_request",
+        },
+        _ => "operation_failed",
+    };
+    stackyard_core::preview::Diagnostic::error(
+        code,
+        "request",
+        if matches!(error, Error::InvalidManifest { .. }) {
+            "Manifest is invalid. Check the affected fields.".into()
+        } else {
+            error.to_string()
+        },
+    )
 }
 
 fn start_install(jobs: &Arc<Jobs>, data_dir: &Path, catalog_id: &str) -> Result<Outcome> {

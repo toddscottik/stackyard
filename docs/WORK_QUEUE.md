@@ -21,15 +21,15 @@ All workers may read existing documentation. Runtime caches and test data belong
 
 `scripts/verification/windows/runtimes.ps1`, `scripts/verification/windows/servers.ps1`, and `scripts/verification/macos/packages.sh` exist. Each provides help, explicit paths or ports, non-destructive defaults, and structured results. Do not treat missing software or a compiler as a passed check.
 
-## Remaining work — 4 November 2026
+## Remaining work - 5 November 2026
 
-Stage 8A is next. Stages 0–8 remain the implemented baseline; their pending target checks are retained. The former broad Stage 9 is replaced by Stages 9–17. Detailed tasks, acceptance, ownership boundaries and handoffs are in DEVELOPMENT_PLAN.md.
+Stage 9 Windows contracts are accepted; Stage 10 is next. Earlier pending target checks are retained. The former broad Stage 9 is replaced by Stages 9–17. Detailed tasks, acceptance, ownership boundaries and handoffs are in DEVELOPMENT_PLAN.md.
 
 | ID | Status / owner | Bounded scope | Dependency |
 | --- | --- | --- | --- |
 | S8A-PHP | Windows accepted / coordinator; Mac pending | Windows PHP patches/Composer, FastCGI, live PHP-only rollout, verified memcached extension and guarded native server completed | Full native gates and actual engine catalog download/set-get passed; Mac checks stay pending |
-| S9-CONTRACTS | Preparatory audit / coordinator | 9.1 proposal in decisions/0008-project-scopes.md; 9.2–9.4 not implemented | Review/freeze contracts against 8A; retain its artifact/platform gates |
-| S10-DESKTOP | Waiting / unassigned | Build the shared desktop workspace and activity layer; execute tasks 10.1–10.4 and its acceptance checks | Stage 9 contracts. |
+| S9-CONTRACTS | Done on Windows / coordinator; Mac pending | Tasks 9.1-9.4 implemented; accepted contract in decisions/0008-project-scopes.md; evidence in S9-INTEGRATE.md | Native scope isolation, migration/reopen, worker/TCP/HTTP/PHP readiness, pure preview and client boundaries accepted; repeat Mac checks later |
+| S10-DESKTOP | Ready / unassigned | Build the shared desktop workspace and activity layer; execute tasks 10.1–10.4 and its acceptance checks | Stage 9 contracts. |
 | S11-CREATE | Waiting / unassigned | Create runnable projects from the desktop; execute tasks 11.1–11.4 and its acceptance checks | Stages 9–10 and approved runtime/tool artifacts. |
 | S12-IMPORT | Waiting / unassigned | Import applications and edit their configuration; execute tasks 12.1–12.4 and its acceptance checks | Stages 9–11. |
 | S13-COMPONENTS | Waiting / unassigned | Unify components, dependencies and PHP extensions; execute tasks 13.1–13.4 and its acceptance checks | Stages 8A and 9–12. |
@@ -68,3 +68,17 @@ The user explicitly directed continued implementation without waiting for Mac ac
 | S8A-CACHE-PROVIDER | Reviewed / cache worker | crates/engine/src/cache.rs; crates/engine/tests/cache_transport.rs; docs/evidence/S8A-CACHE-PROVIDER.md | Native private socket/exclusive TCP, crash/retry/cancel/ownership/volatile restart passed |
 
 Windows Stage 8A now has complete native provider acceptance; no Mac pass is implied. Continue Stage 9 without waiting for the deferred target run. See the resumed handoff in IMPLEMENTATION_STATUS.md.
+
+## Stage 9 assignments and acceptance
+
+Stage 8A Windows acceptance is committed in 79d5bb1. Mac execution is deferred, not a reason to pause source work. Coordinator freezes the shared schema/DTO/store interfaces; workers have disjoint ownership and do not stage/commit.
+
+| Task | Owner | Exclusive writable paths | Acceptance |
+| --- | --- | --- | --- |
+| 9.2 manifest contract | Reviewed / Luna worker | crates/core/src/manifest.rs; docs/evidence/S9-MANIFEST.md | Schema2 scopes/endpoints/readiness, legacy in-memory normalization, pure validation |
+| 9.2 scope execution | Reviewed / Sol medium worker | crates/core/src/scopes.rs; crates/core/src/deps.rs; crates/core/src/project.rs; crates/engine/src/control.rs; crates/engine/tests/scopes.rs; docs/evidence/S9-SCOPES.md | Stable scope selections/env/lockfile ownership, independent Node/Python/PHP launches/dependency actions, no legacy environment moves |
+| 9.3 readiness | Reviewed / Luna worker | crates/engine/src/readiness.rs; crates/engine/src/supervisor.rs; crates/core/src/apache.rs; crates/engine/tests/readiness.rs; docs/evidence/S9-READINESS.md | Worker/TCP/HTTP explicit checks, status observation, legacy behavior and FastCGI preserved; reject non-HTTP proxy |
+| 9.1/9.4 integration | Done on Windows / coordinator | Store/protocol/exports/preview.rs/CLI/Tauri/api.ts/shared docs | Migration8 preservation, pure preview + structured diagnostics, boundary agreement, combined native gates |
+Stage 9 resumed with the compact plan in S9_AGENT_PLAN.md: Luna workers own manifest/readiness; Sol at medium reasoning owns tightly coupled scope execution. Coordinator owns migration/preview/adapters/review. Previous interrupted agents are not resumed.
+
+Stage 9 completed Windows review on 5 November 2026. Coordinator evidence: S9-INTEGRATE.md. All canonical gates passed with native fixtures enabled; scoped live pnpm/Python service checks are recorded in S9-SCOPES.md. Legacy state, venv paths and PHP profile pointers survive migration. Independent CI resolver-test work remains outside this stage's commit. Stage 10.1 is ready; Mac acceptance stays pending.

@@ -15,6 +15,10 @@ fn main() {
         Some("--version") => println!("1.0.0"),
         Some("serve") => serve(false),
         Some("serve-child") => serve(true),
+        Some("worker") => worker(),
+        Some("tcp") => raw_tcp(),
+        Some("status") => exact_status(&args),
+        Some("delayed-crash") => delayed_crash(&args),
         Some("fail") => {
             eprintln!("startup failed: missing table");
             std::process::exit(1);
@@ -29,6 +33,58 @@ fn main() {
         }
         None => std::process::exit(2),
     }
+}
+
+fn worker() {
+    let path = env::var_os("WORKER_MARKER").unwrap_or_else(|| "worker-env.txt".into());
+    fs::write(
+        path,
+        format!(
+            "worker-started;PORT={};FLASK_RUN_PORT={}",
+            env::var("PORT").unwrap_or_default(),
+            env::var("FLASK_RUN_PORT").unwrap_or_default()
+        ),
+    )
+    .expect("worker marker");
+    thread::sleep(Duration::from_secs(120));
+}
+
+fn listener() -> (TcpListener, u16) {
+    let port: u16 = env::var("PORT").expect("PORT").parse().expect("port");
+    let listener = TcpListener::bind(("127.0.0.1", port)).expect("bind fixture endpoint");
+    let port = listener.local_addr().expect("listener address").port();
+    (listener, port)
+}
+
+fn raw_tcp() {
+    let (listener, _) = listener();
+    for mut stream in listener.incoming().flatten() {
+        let _ = stream.write_all(b"raw-tcp");
+    }
+}
+
+fn exact_status(args: &[String]) {
+    let status = args.get(1).expect("status code");
+    let (listener, _) = listener();
+    for mut stream in listener.incoming().flatten() {
+        let mut request = [0; 512];
+        let _ = stream.read(&mut request);
+        let reason = if status == "302" { "Found" } else { "Fixture" };
+        let response = format!(
+            "HTTP/1.1 {status} {reason}\r\nLocation: http://127.0.0.1:1/no-follow\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        let _ = stream.write_all(response.as_bytes());
+    }
+}
+
+fn delayed_crash(args: &[String]) {
+    let delay = args
+        .get(1)
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(100);
+    thread::sleep(Duration::from_millis(delay));
+    eprintln!("delayed-crash: fixture exited after {delay}ms");
+    std::process::exit(1);
 }
 
 fn serve(spawn_child: bool) {

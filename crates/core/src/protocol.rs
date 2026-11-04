@@ -80,6 +80,55 @@ pub enum Command {
         path: String,
     },
     ListProjects,
+    SelectScopePackage {
+        project_id: String,
+        scope_id: String,
+        package_id: String,
+    },
+    PreviewProject {
+        draft: crate::preview::PreviewRequest,
+    },
+    DepInstallScoped {
+        project_id: String,
+        scope_id: String,
+    },
+    DepAddScoped {
+        project_id: String,
+        scope_id: String,
+        package: String,
+    },
+    DepRemoveScoped {
+        project_id: String,
+        scope_id: String,
+        package: String,
+    },
+    DepUpdateScoped {
+        project_id: String,
+        scope_id: String,
+        package: String,
+    },
+    DepListScoped {
+        project_id: String,
+        scope_id: String,
+    },
+    DepRecoverScoped {
+        project_id: String,
+        scope_id: String,
+    },
+    PhpStatusScoped {
+        project_id: String,
+        scope_id: String,
+    },
+    PhpApplyProfileScoped {
+        project_id: String,
+        scope_id: String,
+        extensions: Vec<String>,
+    },
+    PhpInstallExtensionScoped {
+        project_id: String,
+        scope_id: String,
+        catalog_id: String,
+    },
     ProjectStatus {
         project_id: String,
     },
@@ -234,11 +283,16 @@ pub struct Response {
     pub result: Option<Outcome>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_detail: Option<crate::preview::Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Outcome {
+    ProjectPreview {
+        preview: crate::preview::ProjectPreview,
+    },
     Caches {
         instances: Vec<crate::store::CacheInstanceRecord>,
     },

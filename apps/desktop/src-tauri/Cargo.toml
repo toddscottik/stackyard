@@ -17,3 +17,6 @@ stackyard-core = { path = "../../../crates/core" }
 serde.workspace = true
 tauri = { version = "2.12.5", features = ["tray-icon"] }
 tokio.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

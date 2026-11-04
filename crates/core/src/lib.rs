@@ -18,8 +18,10 @@ pub mod memcached;
 mod paths;
 pub mod php;
 pub mod php_project;
+pub mod preview;
 mod project;
 mod protocol;
+pub mod scopes;
 mod store;
 mod transport;
 mod updates;
@@ -50,8 +52,9 @@ pub use install::{
 };
 pub use logs::{append_log, log_tail, read_log, service_log_path, LogChunk};
 pub use manifest::{
-    load_manifest, start_order, ManagerKind, Manifest, RestartPolicy, RuntimeRole, ServiceSpec,
-    SiteKind, SiteSpec,
+    load_manifest, parse_manifest, start_order, EndpointProtocol, EndpointSpec,
+    EnvironmentOwnership, ManagerKind, Manifest, ReadinessSpec, RestartPolicy, RuntimeRole,
+    ScopeSpec, ServiceSpec, SiteKind, SiteSpec,
 };
 pub use paths::{
     default_data_dir, disposable_dir, endpoint_id, pipe_path, plain_path, prepare_data_dir,
@@ -60,7 +63,8 @@ pub use paths::{
 pub use project::{
     active_state, contained_dir, ensure_venv, environment_dir, import_project, list_project_views,
     load_project_manifest, prepend_path, project_view, require_startable, resolve_runtime,
-    resolve_tool, service_launch, venv_python, Launch, ProjectView, ServiceView,
+    resolve_tool, service_launch, venv_python, EndpointView, Launch, ProjectView, ScopeView,
+    ServiceView,
 };
 pub use protocol::{
     check_api_version, next_request_id, Command, DbView, DiscoveredRuntime, Outcome, Request,
@@ -68,7 +72,8 @@ pub use protocol::{
 };
 pub use store::{
     CacheInstanceRecord, DbBindingRecord, DbInstanceRecord, PackageRecord, ProcessRecord,
-    ProjectRecord, PublicationRecord, SqliteRecord, Store,
+    ProjectRecord, PublicationRecord, ScopeSelectionRecord, ServiceObservationRecord, SqliteRecord,
+    Store,
 };
 pub use transport::{recv, send};
 pub use updates::{

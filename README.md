@@ -24,6 +24,8 @@ Stage 8 adds setup steps, a redacted diagnostics report, and the personal-releas
 
 Stage 8A Windows providers include publisher-checked PHP 8.5.11/8.5.12-1, Composer 2.11.1 and memcached 3.4.0. Profiles support PHP-only live restart/rollback; Apache can serve PHP FastCGI document roots and rewrites. Managed native Memcached runs behind an exclusive engine loopback listener and private native socket. CLI/engine/Tauri adapters are available; the dedicated desktop Stack workflow remains Stage 13. See [native acceptance](docs/evidence/S8A-NATIVE-CACHE.md), [provider evidence](docs/evidence/S8A-CACHE-PROVIDER.md) and the [PHP fixture](fixtures/php-http/README.md). Mac PHP/extension execution remains pending.
 
+Stage 9 adds schema-2 dependency scopes with independent runtime/tool selections and Python environments, optional HTTP/TCP/FastCGI endpoints, explicit readiness, and read-only draft preview. Existing schema-1 manifests are normalized without rewriting them or moving their environments. See [the schema/API contract](docs/decisions/0008-project-scopes.md) and [Stage 9 acceptance](docs/evidence/S9-INTEGRATE.md). Desktop workflow changes begin in Stage 10.
+
 Development commands, from the repository root:
 
 ```text
@@ -38,6 +40,9 @@ cargo run -p stackyard-cli -- import PATH
 cargo run -p stackyard-cli -- start PROJECT
 cargo run -p stackyard-cli -- stop-project PROJECT
 cargo run -p stackyard-cli -- deps install PROJECT
+cargo run -p stackyard-cli -- deps install PROJECT --scope-id backend
+cargo run -p stackyard-cli -- select-scope PROJECT backend PACKAGE_ID
+cargo run -p stackyard-cli -- preview ROOT [DRAFT_FILE]
 cargo run -p stackyard-cli -- publish PROJECT
 cargo run -p stackyard-cli -- sites
 cargo run -p stackyard-cli -- apache restart

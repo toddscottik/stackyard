@@ -1,6 +1,8 @@
+use std::collections::BTreeSet;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -84,6 +86,7 @@ pub fn start_recovery(
             DepAction::Install,
             None,
             &scope,
+            None,
             &cancel,
         )?;
         Ok(format!(
@@ -115,6 +118,7 @@ pub fn start_dependency(
             action,
             package.as_deref(),
             &scope,
+            None,
             &cancel,
         );
         match result {
@@ -166,11 +170,12 @@ fn run_launch(
             id: "exec".to_string(),
         });
     }
-    let mut group = group::spawn_grouped(
+    let mut group = group::spawn_grouped_scoped(
         &launch.program,
         &launch.args,
         &launch.working_directory,
         &launch.env,
+        &launch.env_remove,
         log_path,
     )?;
     let started = Instant::now();
@@ -214,17 +219,55 @@ fn run_dependency(
     action: DepAction,
     package: Option<&str>,
     scope: &str,
+    scope_id: Option<&str>,
     cancel: &AtomicBool,
 ) -> Result<String> {
     let (project, manifest) = stackyard_core::load_project_manifest(data_dir, project_id)?;
     let root = Path::new(&project.root);
-    let node = optional_runtime(data_dir, project_id, stackyard_core::RuntimeRole::Node)?;
-    let python = optional_runtime(data_dir, project_id, stackyard_core::RuntimeRole::Python)?;
-    let php = optional_runtime(data_dir, project_id, stackyard_core::RuntimeRole::Php)?;
-    let composer = stackyard_core::resolve_tool(data_dir, project_id, "composer")?;
-    let pnpm = stackyard_core::resolve_tool(data_dir, project_id, "pnpm")?;
-    let uv = stackyard_core::resolve_tool(data_dir, project_id, "uv")?;
-    let venv = stackyard_core::venv_python(&stackyard_core::environment_dir(data_dir, project_id));
+    let resolved =
+        stackyard_core::scopes::resolve_dependency_scope(root, &manifest, scope_id, scope)?;
+    let env_dir = stackyard_core::scopes::resolved_environment(
+        data_dir,
+        project_id,
+        root,
+        &manifest,
+        &resolved.spec,
+    )?;
+    let _guard = DependencyGuard::acquire(
+        vec![resolved.lockfile_root.clone(), env_dir.clone()],
+        cancel,
+    )?;
+    let runtime = stackyard_core::scopes::resolve_scope_runtime(
+        data_dir,
+        project_id,
+        &resolved.spec.id,
+        resolved.spec.runtime,
+    )?;
+    let runtime_path = PathBuf::from(runtime.launch);
+    let node = (resolved.spec.runtime == stackyard_core::RuntimeRole::Node)
+        .then_some(runtime_path.clone());
+    let python = (resolved.spec.runtime == stackyard_core::RuntimeRole::Python)
+        .then_some(runtime_path.clone());
+    let php = (resolved.spec.runtime == stackyard_core::RuntimeRole::Php).then_some(runtime_path);
+    let tool = |name| {
+        stackyard_core::scopes::resolve_scope_tool(data_dir, project_id, &resolved.spec.id, name)
+    };
+    let composer = if resolved.manager == stackyard_core::ManagerKind::Composer {
+        tool("composer")?
+    } else {
+        None
+    };
+    let pnpm = if resolved.manager == stackyard_core::ManagerKind::Pnpm {
+        tool("pnpm")?
+    } else {
+        None
+    };
+    let uv = if resolved.manager == stackyard_core::ManagerKind::Uv {
+        tool("uv")?
+    } else {
+        None
+    };
+    let venv = stackyard_core::venv_python(&env_dir);
     let venv_ref = venv.is_file().then_some(venv.as_path());
     let node_path = node.as_deref();
     let python_path = python.as_deref();
@@ -243,6 +286,7 @@ fn run_dependency(
             action,
             package,
             scope,
+            scope_id,
         },
         Toolchain {
             node: node_path,
@@ -258,7 +302,7 @@ fn run_dependency(
     let log_path = data_dir
         .join("logs")
         .join(project_id)
-        .join("dependencies.log");
+        .join(format!("dependencies-{}.log", resolved.spec.id));
     let mut version = String::new();
     for command in &plan.commands {
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
@@ -292,6 +336,11 @@ fn run_dependency(
                 .to_path_buf(),
             plan.scope_dir.join("node_modules").join(".bin"),
         ];
+        if let Some(node) = &node {
+            if let Some(parent) = node.parent() {
+                path_front.push(parent.into());
+            }
+        }
         if let Some((_, value)) = command.env.iter().find(|(key, _)| key == "PATH") {
             path_front.extend(std::env::split_paths(value));
         }
@@ -375,16 +424,117 @@ fn run_command(
     }
 }
 
-fn optional_runtime(
+static DEPENDENCY_WRITERS: OnceLock<Mutex<BTreeSet<PathBuf>>> = OnceLock::new();
+
+struct DependencyGuard(Vec<PathBuf>);
+impl DependencyGuard {
+    fn acquire(mut keys: Vec<PathBuf>, cancel: &AtomicBool) -> Result<Self> {
+        // Existing ancestors are canonicalized so absent managed environments and
+        // junction aliases resolve to the same writer identity.
+        for key in &mut keys {
+            *key = canonical_identity(key)?;
+        }
+        loop {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(Error::Cancelled {
+                    id: "dependency".into(),
+                });
+            }
+            {
+                let mut held = DEPENDENCY_WRITERS
+                    .get_or_init(Default::default)
+                    .lock()
+                    .expect("dependency writer mutex");
+                if keys.iter().all(|key| !held.contains(key)) {
+                    held.extend(keys.iter().cloned());
+                    return Ok(Self(keys));
+                }
+            }
+            thread::sleep(Duration::from_millis(30));
+        }
+    }
+}
+impl Drop for DependencyGuard {
+    fn drop(&mut self) {
+        let mut held = DEPENDENCY_WRITERS
+            .get_or_init(Default::default)
+            .lock()
+            .expect("dependency writer mutex");
+        for key in &self.0 {
+            held.remove(key);
+        }
+    }
+}
+fn canonical_identity(path: &Path) -> Result<PathBuf> {
+    if path.exists() {
+        return path
+            .canonicalize()
+            .map(stackyard_core::plain_path)
+            .map_err(|source| Error::io("resolve dependency owner", source));
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::InvalidMessage("dependency owner has no existing ancestor".into()))?;
+    Ok(canonical_identity(parent)?.join(
+        path.file_name()
+            .ok_or_else(|| Error::InvalidMessage("invalid dependency owner".into()))?,
+    ))
+}
+
+pub fn start_dependency_scoped(
+    tasks: &Arc<TaskBoard>,
     data_dir: &Path,
     project_id: &str,
-    role: stackyard_core::RuntimeRole,
-) -> Result<Option<std::path::PathBuf>> {
-    match stackyard_core::resolve_runtime(data_dir, project_id, role) {
-        Ok(package) => Ok(Some(std::path::PathBuf::from(package.launch))),
-        Err(Error::InvalidMessage(_)) => Ok(None),
-        Err(err) => Err(err),
-    }
+    action: DepAction,
+    package: Option<&str>,
+    scope_id: &str,
+) -> Result<Outcome> {
+    let data = data_dir.to_path_buf();
+    let project = project_id.to_string();
+    let scope = scope_id.to_string();
+    let package = package.map(str::to_string);
+    spawn_task(
+        tasks,
+        format!("deps {} {project}/{scope}", action_name(action)),
+        move |cancel| {
+            run_dependency(
+                &data,
+                &project,
+                action,
+                package.as_deref(),
+                ".",
+                Some(&scope),
+                &cancel,
+            )
+        },
+    )
+}
+
+pub fn start_recovery_scoped(
+    tasks: &Arc<TaskBoard>,
+    data_dir: &Path,
+    project_id: &str,
+    scope_id: &str,
+) -> Result<Outcome> {
+    let data = data_dir.to_path_buf();
+    let project = project_id.to_string();
+    let scope = scope_id.to_string();
+    spawn_task(
+        tasks,
+        format!("recover dependencies {project}/{scope} from the lockfile"),
+        move |cancel| {
+            let message = run_dependency(
+                &data,
+                &project,
+                DepAction::Install,
+                None,
+                ".",
+                Some(&scope),
+                &cancel,
+            )?;
+            Ok(format!("recovered dependencies from the recorded lockfile. Package scripts were not rolled back. {message}"))
+        },
+    )
 }
 
 fn version_args(program: &Path, args: &[String]) -> Vec<String> {
@@ -429,4 +579,30 @@ fn valid_id(value: &str) -> bool {
         && value
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+#[cfg(test)]
+mod scope_writer_tests {
+    use super::*;
+    #[test]
+    fn shared_owner_waits_and_cancels_while_independent_owner_proceeds() {
+        let root =
+            stackyard_core::prepare_data_dir(&stackyard_core::disposable_dir("scope-writers"))
+                .unwrap();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let shared = root.join("shared");
+        let first = DependencyGuard::acquire(vec![shared.clone()], &cancelled).unwrap();
+        let independent =
+            DependencyGuard::acquire(vec![root.join("independent")], &cancelled).unwrap();
+        let flag = Arc::clone(&cancelled);
+        let waiter = thread::spawn(move || DependencyGuard::acquire(vec![shared], &flag).is_err());
+        thread::sleep(Duration::from_millis(70));
+        cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(waiter.join().unwrap());
+        drop(first);
+        drop(independent);
+        let flag = AtomicBool::new(false);
+        drop(DependencyGuard::acquire(vec![root.join("shared")], &flag).unwrap());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

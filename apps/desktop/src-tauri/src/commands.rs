@@ -167,6 +167,30 @@ pub struct ServiceView {
     pid: Option<u32>,
     port: Option<u16>,
     detail: String,
+    scope_id: String,
+    readiness_state: String,
+    readiness: Option<stackyard_core::ReadinessSpec>,
+    http_status: Option<u16>,
+    endpoint: Option<EndpointView>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EndpointView {
+    protocol: String,
+    requested_port: u16,
+    resolved_port: Option<u16>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeView {
+    id: String,
+    directory: String,
+    runtime: String,
+    manager: String,
+    manager_detail: String,
+    selections: Vec<SelectionView>,
 }
 
 #[derive(Serialize)]
@@ -176,6 +200,7 @@ pub struct SelectionView {
     package_id: String,
     version: String,
     source: String,
+    origin: String,
 }
 
 #[derive(Serialize)]
@@ -188,6 +213,7 @@ pub struct ProjectView {
     manager_detail: String,
     selections: Vec<SelectionView>,
     services: Vec<ServiceView>,
+    scopes: Vec<ScopeView>,
 }
 
 #[derive(Serialize)]
@@ -239,6 +265,29 @@ fn project_view(project: stackyard_core::ProjectView) -> ProjectView {
                 package_id: item.package_id,
                 version: item.version,
                 source: item.source,
+                origin: item.origin,
+            })
+            .collect(),
+        scopes: project
+            .scopes
+            .into_iter()
+            .map(|s| ScopeView {
+                id: s.id,
+                directory: s.directory,
+                runtime: s.runtime,
+                manager: s.manager,
+                manager_detail: s.manager_detail,
+                selections: s
+                    .selections
+                    .into_iter()
+                    .map(|v| SelectionView {
+                        role: v.role,
+                        package_id: v.package_id,
+                        version: v.version,
+                        source: v.source,
+                        origin: v.origin,
+                    })
+                    .collect(),
             })
             .collect(),
         services: project
@@ -251,6 +300,15 @@ fn project_view(project: stackyard_core::ProjectView) -> ProjectView {
                 pid: service.pid,
                 port: service.port,
                 detail: service.detail,
+                scope_id: service.scope_id,
+                readiness_state: service.readiness_state,
+                readiness: service.readiness,
+                http_status: service.http_status,
+                endpoint: service.endpoint.map(|e| EndpointView {
+                    protocol: e.protocol,
+                    requested_port: e.requested_port,
+                    resolved_port: e.resolved_port,
+                }),
             })
             .collect(),
     }
@@ -535,6 +593,13 @@ pub async fn open_project(
                 .iter()
                 .find(|service| service.id == service_id)
                 .ok_or_else(|| format!("service {service_id} was not found"))?;
+            if !service
+                .endpoint
+                .as_ref()
+                .is_some_and(|e| e.protocol == "http")
+            {
+                return Err("this service has no HTTP endpoint".into());
+            }
             let port = service
                 .port
                 .ok_or_else(|| "this service has no loopback port yet".to_string())?;
@@ -889,5 +954,182 @@ pub fn show_main(app: &AppHandle) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+    }
+}
+
+// Preview deliberately bypasses engine autostart and opens existing state read-only.
+#[tauri::command]
+pub fn preview_project(
+    draft: stackyard_core::preview::PreviewRequest,
+) -> Result<stackyard_core::preview::ProjectPreview, String> {
+    let store =
+        stackyard_core::Store::open_read_only(&default_data_dir()).map_err(|e| e.to_string())?;
+    stackyard_core::preview::preview_request(&draft, store.as_ref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn select_scope_package(
+    project_id: String,
+    scope_id: String,
+    package_id: String,
+) -> Result<ProjectView, String> {
+    one_project(
+        call_within(
+            Command::SelectScopePackage {
+                project_id,
+                scope_id,
+                package_id,
+            },
+            Duration::from_secs(45),
+        )
+        .await?,
+    )
+}
+
+#[tauri::command]
+pub async fn start_dependency_scoped(
+    project_id: String,
+    scope_id: String,
+    action: String,
+    package: String,
+) -> Result<TaskView, String> {
+    let command = match action.as_str() {
+        "install" => Command::DepInstallScoped {
+            project_id,
+            scope_id,
+        },
+        "list" => Command::DepListScoped {
+            project_id,
+            scope_id,
+        },
+        "recover" => Command::DepRecoverScoped {
+            project_id,
+            scope_id,
+        },
+        "add" => Command::DepAddScoped {
+            project_id,
+            scope_id,
+            package,
+        },
+        "remove" => Command::DepRemoveScoped {
+            project_id,
+            scope_id,
+            package,
+        },
+        "update" => Command::DepUpdateScoped {
+            project_id,
+            scope_id,
+            package,
+        },
+        _ => return Err("unknown dependency action".into()),
+    };
+    task(call(command).await?)
+}
+
+#[tauri::command]
+pub async fn php_status_scoped(
+    project_id: String,
+    scope_id: String,
+) -> Result<stackyard_core::php_project::PhpProjectView, String> {
+    match call_within(
+        Command::PhpStatusScoped {
+            project_id,
+            scope_id,
+        },
+        Duration::from_secs(45),
+    )
+    .await?
+    {
+        Outcome::Php { view } => Ok(*view),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+#[tauri::command]
+pub async fn php_apply_profile_scoped(
+    project_id: String,
+    scope_id: String,
+    extensions: Vec<String>,
+) -> Result<stackyard_core::php_project::PhpProjectView, String> {
+    match call_within(
+        Command::PhpApplyProfileScoped {
+            project_id,
+            scope_id,
+            extensions,
+        },
+        Duration::from_secs(120),
+    )
+    .await?
+    {
+        Outcome::Php { view } => Ok(*view),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+#[tauri::command]
+pub async fn php_install_extension_scoped(
+    project_id: String,
+    scope_id: String,
+    catalog_id: String,
+) -> Result<Outcome, String> {
+    call_within(
+        Command::PhpInstallExtensionScoped {
+            project_id,
+            scope_id,
+            catalog_id,
+        },
+        Duration::from_secs(45),
+    )
+    .await
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    #[test]
+    fn scope_endpoint_observations_survive_the_desktop_adapter() {
+        let project = stackyard_core::ProjectView {
+            id: "demo".into(),
+            name: "demo".into(),
+            root: ".".into(),
+            manager: "".into(),
+            manager_detail: "multiple scopes".into(),
+            selections: vec![],
+            scopes: vec![stackyard_core::ScopeView {
+                id: "web".into(),
+                directory: "web".into(),
+                runtime: "node".into(),
+                manager: "pnpm".into(),
+                manager_detail: "explicit".into(),
+                selections: vec![],
+            }],
+            services: vec![stackyard_core::ServiceView {
+                id: "web".into(),
+                runtime: "node".into(),
+                state: "running".into(),
+                pid: Some(20),
+                port: Some(3100),
+                detail: "ready".into(),
+                scope_id: "web".into(),
+                readiness_state: "ready".into(),
+                readiness: Some(stackyard_core::ReadinessSpec::Http {
+                    path: "/".into(),
+                    statuses: vec![302],
+                    timeout_secs: 15,
+                }),
+                http_status: Some(302),
+                endpoint: Some(stackyard_core::EndpointView {
+                    protocol: "http".into(),
+                    requested_port: 0,
+                    resolved_port: Some(3100),
+                }),
+            }],
+        };
+        let value = serde_json::to_value(project_view(project)).unwrap();
+        assert_eq!(value["scopes"][0]["id"], "web");
+        assert_eq!(value["services"][0]["scopeId"], "web");
+        assert_eq!(value["services"][0]["httpStatus"], 302);
+        assert_eq!(value["services"][0]["readinessState"], "ready");
+        assert_eq!(value["services"][0]["endpoint"]["resolvedPort"], 3100);
+        assert_eq!(value["services"][0]["endpoint"]["requestedPort"], 0);
+        assert!(value["services"][0].get("scope_id").is_none());
     }
 }

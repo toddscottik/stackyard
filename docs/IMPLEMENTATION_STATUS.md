@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 4 November 2026 (Stage 8A Windows implementation and evidence; historical execution retains its dates).
+Updated: 5 November 2026 (Stage 9 Windows implementation and acceptance; historical execution retains its dates).
 
 ## Completed preparation
 
@@ -27,7 +27,7 @@ Updated: 4 November 2026 (Stage 8A Windows implementation and evidence; historic
 | 7: updates/recovery | Partial. Linux x86_64 notice, switch, cleanup, and interrupted-install checks passed on 1 November 2026. No second digest-checked Node or Python pin was downloaded | Download a newer checked Node or Python pin on Windows 10 and switch one project there. Leave macOS pins out until a payload check |
 | 8: personal release | Partial. Linux x86_64 diagnostics, setup notes, and fixture smoke passed on 1 November 2026. Windows 10 and macOS 14.5 acceptance, the user's projects, and sleep/wake are open | Run the acceptance list on Windows 10 x64 and the M1 Pro running macOS 14.5. Measure startup there with an editor and browser. Do not treat the Linux sample as that gate |
 | 8A: PHP/extensions | Windows deliverables/native acceptance completed 4 November: PHP patches/Composer, FastCGI, live profiles, memcached extension and guarded native server. Mac pending | Repeat native checks on macOS 14.5 when available; continue independent Stage 9 now |
-| 9: Define project scopes and launch contracts | Preparatory 9.1 audit drafted in decisions/0008-project-scopes.md; schema/API proposal not implemented | Review/freeze examples, then implement 9.2–9.4 against the current PHP contracts. Do not count the audit as Stage 9 acceptance |
+| 9: Define project scopes and launch contracts | Windows implementation/acceptance complete 5 November: schema 2 scopes, migration 8, typed readiness, pure preview and client adapters. Mac pending | Repeat native scope/readiness checks on macOS 14.5 when available; Stage 10 desktop workspace is ready to begin |
 | 10: Build the shared desktop workspace and activity layer | Not started | A maintainable desktop shell that preserves existing actions and can host the new workflows. |
 | 11: Create runnable projects from the desktop | Not started | Create project produces working source and a runnable application for Node HTTP, Next.js, Flask, and FastAPI. |
 | 12: Import applications and edit their configuration | Not started | Existing applications can be added without hand-writing stackyard.toml, and their configuration can be changed safely afterward. |
@@ -198,3 +198,14 @@ Canonical cargo test --workspace --offline passed with every native gate enabled
 An actual CLI/engine network smoke downloaded the extension and server through catalog URLs, verified publisher digests before extraction, activated the extension, created a guarded native instance, performed PHP set/get, stopped/forgot that instance and stopped its isolated engine. It passed; ignored evidence is .artifacts/S8A-CACHE-BUILD/download-result.json. No global PATH, OS service, hosts/trust entry, user project or persistent database changed.
 
 Windows Stage 8A deliverables are accepted. Mac execution remains pending for the user's target run. No user input is needed to continue Stage 9; freeze its contract and implement 9.2–9.4 while retaining target evidence boundaries. Dedicated desktop Stack controls remain Stage 13.
+## Stage 9 coordinator handoff - 5 November 2026
+
+Stage 9 source and Windows acceptance are complete. [Decision 0008](decisions/0008-project-scopes.md) freezes the schema/API and migration behavior. [Integration evidence](evidence/S9-INTEGRATE.md) links the worker checks and exact native gates. Mac execution remains pending; it did not block independent source work.
+
+Changed: shared manifest/scope/dependency/project/PHP services; migration 8 and read-only store opening; pure preview and structured error detail; supervisor/readiness/Apache validation; scoped engine/CLI/Tauri/TypeScript commands; disposable tests and documentation. Schema 1 is normalized without rewriting manifests or moving environments. Scope selections inherit project/global choices without freezing defaults. Scope-specific PHP rollout preserves unrelated workers and observed listener ports.
+
+Validation on Windows 10 Pro 10.0.19045 x64, Rust 1.99.1: cargo test --workspace --offline passed with all cached native Windows gates enabled (128 reported passes); cargo clippy --workspace --all-targets --offline -- -D warnings and pnpm --dir apps/desktop run build passed. The coordinator checked cold CLI preview, migration/reopen preservation, Tauri serialization, native PHP portless rollout and existing PHP/FastCGI/cache regressions. Native pnpm/Python live-service acceptance is detailed in S9-SCOPES.md. Missing Mac and older stage desktop/target checks remain open, without a whole-project completion claim.
+
+Workers used fresh bounded contexts: two Luna workers for parser/readiness, one Sol at medium reasoning for scope execution. The coordinator owned shared interfaces, migrations, preview, adapters, review and status. No new package downloads, global PATH, service, trust or hosts changes were required. Independent CI resolver-test changes were preserved separately.
+
+Next task: Stage 10.1, split the desktop shell/navigation and feature panels while preserving existing actions; then resource/activity ownership and Stage 10 acceptance. Mac Stage 9 checks can run independently when the user's machine is available.

@@ -18,6 +18,28 @@ pub struct ServiceView {
     pub pid: Option<u32>,
     pub port: Option<u16>,
     pub detail: String,
+    pub scope_id: String,
+    pub readiness_state: String,
+    pub readiness: Option<crate::ReadinessSpec>,
+    pub http_status: Option<u16>,
+    pub endpoint: Option<EndpointView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointView {
+    pub protocol: String,
+    pub requested_port: u16,
+    pub resolved_port: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScopeView {
+    pub id: String,
+    pub directory: String,
+    pub runtime: String,
+    pub manager: String,
+    pub manager_detail: String,
+    pub selections: Vec<SelectionView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,6 +48,7 @@ pub struct SelectionView {
     pub package_id: String,
     pub version: String,
     pub source: String,
+    pub origin: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +60,7 @@ pub struct ProjectView {
     pub manager_detail: String,
     pub selections: Vec<SelectionView>,
     pub services: Vec<ServiceView>,
+    pub scopes: Vec<ScopeView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +69,7 @@ pub struct Launch {
     pub args: Vec<String>,
     pub working_directory: PathBuf,
     pub env: Vec<(String, String)>,
+    pub env_remove: Vec<String>,
 }
 
 pub fn environment_dir(data_dir: &Path, project_id: &str) -> PathBuf {
@@ -69,6 +94,7 @@ pub fn import_project(data_dir: &Path, path: &Path) -> Result<ProjectView> {
         });
     }
     let manifest = load_manifest(&root)?;
+    crate::scopes::validate_scope_ownership(&root, &manifest)?;
     let store = Store::open(data_dir)?;
     let root_text = crate::paths::plain_path(root).display().to_string();
     if let Some(existing) = store.project_by_root(&root_text)? {
@@ -114,6 +140,7 @@ pub fn list_project_views(data_dir: &Path) -> Result<Vec<ProjectView>> {
                 manager: String::new(),
                 manager_detail: String::new(),
                 selections: Vec::new(),
+                scopes: Vec::new(),
                 services: vec![ServiceView {
                     id: "-".to_string(),
                     runtime: String::new(),
@@ -121,6 +148,11 @@ pub fn list_project_views(data_dir: &Path) -> Result<Vec<ProjectView>> {
                     pid: None,
                     port: None,
                     detail: err.to_string(),
+                    scope_id: String::new(),
+                    readiness_state: "not_checked".into(),
+                    readiness: None,
+                    http_status: None,
+                    endpoint: None,
                 }],
             },
         });
@@ -202,10 +234,24 @@ pub fn service_launch(
 ) -> Result<Launch> {
     let root = PathBuf::from(&project.root);
     let working_directory = contained_dir(&root, &service.working_directory)?;
-    let runtime = resolve_runtime(data_dir, &project.id, service.runtime)?;
+    let (_, manifest) = load_project_manifest(data_dir, &project.id)?;
+    crate::scopes::validate_scope_ownership(&root, &manifest)?;
+    let scope = crate::scopes::scope_spec(&manifest, &service.scope_id)?;
+    if manifest.schema != 1
+        && !working_directory
+            .starts_with(crate::scopes::canonical_scope_dir(&root, &scope.directory)?)
+    {
+        return Err(Error::InvalidMessage(
+            "path_outside_project: service directory is outside its scope".into(),
+        ));
+    }
+    let runtime =
+        crate::scopes::resolve_scope_runtime(data_dir, &project.id, &scope.id, service.runtime)?;
+    let env_dir =
+        crate::scopes::resolved_environment(data_dir, &project.id, &root, &manifest, scope)?;
     let runtime_path = PathBuf::from(&runtime.launch);
     let python = if service.runtime == RuntimeRole::Python {
-        let venv = venv_python(&environment_dir(data_dir, &project.id));
+        let venv = venv_python(&env_dir);
         if venv.is_file() {
             venv
         } else {
@@ -214,7 +260,11 @@ pub fn service_launch(
     } else {
         runtime_path.clone()
     };
-    let pnpm = resolve_tool(data_dir, &project.id, "pnpm")?;
+    let pnpm = if scope.runtime == RuntimeRole::Node {
+        crate::scopes::resolve_scope_tool(data_dir, &project.id, &scope.id, "pnpm")?
+    } else {
+        None
+    };
     let (mut program, mut args) = rewrite_command(
         &root,
         &working_directory,
@@ -277,8 +327,11 @@ pub fn service_launch(
                 });
             }
         }
-        let (mut prefix, php_env) =
-            crate::php_project::php_launch_config(data_dir, &project.id, &runtime_path)?;
+        let (mut prefix, php_env) = crate::php_project::php_launch_config(
+            data_dir,
+            &crate::scopes::scope_profile_key(&project.id, &scope.id, manifest.schema)?,
+            &runtime_path,
+        )?;
         prefix.append(&mut args);
         args = prefix;
         if let Some((_, value)) = php_env.iter().find(|(key, _)| key == "PATH") {
@@ -287,23 +340,32 @@ pub fn service_launch(
         env.extend(php_env);
     }
     env.push(("HOST".to_string(), "127.0.0.1".to_string()));
-    env.push(("PORT".to_string(), port.to_string()));
+
     env.push(("FLASK_RUN_HOST".to_string(), "127.0.0.1".to_string()));
-    env.push(("FLASK_RUN_PORT".to_string(), port.to_string()));
+    let mut env_remove = Vec::new();
+    for key in ["PORT", "FLASK_RUN_PORT"] {
+        if service.endpoint.is_some() {
+            env.push((key.into(), port.to_string()));
+        } else if !service
+            .env
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case(key))
+        {
+            env_remove.push(key.into());
+        }
+    }
     env.push(("STACKYARD_PROJECT".to_string(), project.id.clone()));
     env.push(("STACKYARD_SERVICE".to_string(), service.id.clone()));
     env.push(("PATH".to_string(), prepend_path(&front)));
     if service.runtime == RuntimeRole::Python && python != runtime_path {
-        env.push((
-            "VIRTUAL_ENV".to_string(),
-            environment_dir(data_dir, &project.id).display().to_string(),
-        ));
+        env.push(("VIRTUAL_ENV".to_string(), env_dir.display().to_string()));
     }
     Ok(Launch {
         program,
         args,
         working_directory,
         env,
+        env_remove,
     })
 }
 
@@ -375,12 +437,46 @@ fn view_one(store: &Store, project: &ProjectRecord) -> Result<ProjectView> {
         .services
         .iter()
         .map(|service| {
-            service_view(
+            let mut view = service_view(
                 service,
                 processes.iter().find(|row| row.service_id == service.id),
-            )
+            );
+            if let Some(observation) = store.get_service_observation(&project.id, &service.id)? {
+                view.readiness_state = observation.readiness_state;
+                view.http_status = observation.http_status;
+            }
+            Ok(view)
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
+    let scopes = manifest
+        .scopes
+        .iter()
+        .map(|scope| {
+            let (manager, manager_detail) = match crate::scopes::resolve_scope_manager(
+                Path::new(&project.root),
+                &manifest,
+                scope,
+            ) {
+                Ok(manager) => (
+                    manager.as_str().into(),
+                    format!(
+                        "{} owns {}",
+                        manager.as_str(),
+                        scope.lockfile_root.display()
+                    ),
+                ),
+                Err(error) => (String::new(), error.to_string()),
+            };
+            Ok(ScopeView {
+                id: scope.id.clone(),
+                directory: scope.directory.display().to_string(),
+                runtime: scope.runtime.as_str().into(),
+                manager,
+                manager_detail,
+                selections: scope_selections(store, &project.id, scope)?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
     let (manager, manager_detail) = manager_fields(Path::new(&project.root), &manifest);
     Ok(ProjectView {
         id: project.id.clone(),
@@ -391,11 +487,26 @@ fn view_one(store: &Store, project: &ProjectRecord) -> Result<ProjectView> {
         manager,
         manager_detail,
         selections: project_selections(store, &project.id)?,
+        scopes,
         services,
     })
 }
 
 fn manager_fields(root: &Path, manifest: &Manifest) -> (String, String) {
+    if manifest.schema == 2 {
+        if manifest.scopes.len() > 1 {
+            return (String::new(), "multiple scopes".into());
+        }
+        if let Some(scope) = manifest.scopes.first() {
+            return match crate::scopes::resolve_scope_manager(root, manifest, scope) {
+                Ok(manager) => (
+                    manager.as_str().into(),
+                    format!("{} is chosen for scope {}", manager.as_str(), scope.id),
+                ),
+                Err(error) => (String::new(), error.to_string()),
+            };
+        }
+    }
     match resolve_manager(root, manifest) {
         Ok(kind) => (
             kind.as_str().to_string(),
@@ -426,10 +537,12 @@ fn manager_detail(root: &Path, manifest: &Manifest, kind: ManagerKind) -> String
 fn project_selections(store: &Store, project_id: &str) -> Result<Vec<SelectionView>> {
     let mut found = Vec::new();
     for role in ["node", "python", "php", "pnpm", "uv", "composer"] {
-        let Some(package_id) = store
-            .get_selection(project_id, role)?
-            .or(store.get_selection(DEFAULT_PROJECT, role)?)
-        else {
+        let (package_id, origin) = if let Some(id) = store.get_selection(project_id, role)? {
+            (Some(id), "project")
+        } else {
+            (store.get_selection(DEFAULT_PROJECT, role)?, "global")
+        };
+        let Some(package_id) = package_id else {
             continue;
         };
         let Some(package) = store.get_package(&package_id)? else {
@@ -440,30 +553,80 @@ fn project_selections(store: &Store, project_id: &str) -> Result<Vec<SelectionVi
             package_id,
             version: package.version,
             source: package.source,
+            origin: origin.into(),
         });
     }
     Ok(found)
 }
 
 fn service_view(service: &ServiceSpec, row: Option<&ProcessRecord>) -> ServiceView {
-    let Some(row) = row else {
-        return ServiceView {
-            id: service.id.clone(),
-            runtime: service.runtime.as_str().to_string(),
-            state: "stopped".to_string(),
-            pid: None,
-            port: None,
-            detail: String::new(),
-        };
+    let active = row.is_some_and(|row| active_state(&row.state) && row.pid.is_some());
+    let port = if active {
+        row.and_then(|row| row.port)
+            .and_then(|port| u16::try_from(port).ok())
+    } else {
+        None
     };
     ServiceView {
         id: service.id.clone(),
-        runtime: service.runtime.as_str().to_string(),
-        state: row.state.clone(),
-        pid: row.pid.and_then(|pid| u32::try_from(pid).ok()),
-        port: row.port.and_then(|port| u16::try_from(port).ok()),
-        detail: row.detail.clone(),
+        runtime: service.runtime.as_str().into(),
+        state: row.map_or("stopped", |row| row.state.as_str()).into(),
+        pid: row
+            .and_then(|row| row.pid)
+            .and_then(|pid| u32::try_from(pid).ok()),
+        port,
+        detail: row.map_or("", |row| row.detail.as_str()).into(),
+        scope_id: service.scope_id.clone(),
+        readiness_state: "not_checked".into(),
+        readiness: Some(service.readiness.clone()),
+        http_status: None,
+        endpoint: if active {
+            service.endpoint.as_ref().map(|endpoint| EndpointView {
+                protocol: match endpoint.protocol {
+                    crate::manifest::EndpointProtocol::Http => "http",
+                    crate::manifest::EndpointProtocol::Tcp => "tcp",
+                    crate::manifest::EndpointProtocol::FastCgi => "fastcgi",
+                }
+                .into(),
+                requested_port: endpoint.port,
+                resolved_port: port,
+            })
+        } else {
+            None
+        },
     }
+}
+
+fn scope_selections(
+    store: &Store,
+    project: &str,
+    scope: &crate::manifest::ScopeSpec,
+) -> Result<Vec<SelectionView>> {
+    let mut selections = Vec::new();
+    let tool = match scope.runtime {
+        RuntimeRole::Node => "pnpm",
+        RuntimeRole::Python => "uv",
+        RuntimeRole::Php => "composer",
+    };
+    for role in [scope.runtime.as_str(), tool] {
+        let (id, origin) = if let Some(id) = store.get_scope_selection(project, &scope.id, role)? {
+            (Some(id), "scope")
+        } else if let Some(id) = store.get_selection(project, role)? {
+            (Some(id), "project")
+        } else {
+            (store.get_selection(DEFAULT_PROJECT, role)?, "global")
+        };
+        if let Some(package) = id.map(|id| store.get_package(&id)).transpose()?.flatten() {
+            selections.push(SelectionView {
+                role: role.into(),
+                package_id: package.id,
+                version: package.version,
+                source: package.source,
+                origin: origin.into(),
+            });
+        }
+    }
+    Ok(selections)
 }
 
 fn rewrite_command(
@@ -475,6 +638,11 @@ fn rewrite_command(
     python: &Path,
     pnpm: Option<&Path>,
 ) -> Result<(PathBuf, Vec<String>)> {
+    if command.is_empty() {
+        return Err(Error::InvalidMessage(
+            "command must contain a program".into(),
+        ));
+    }
     let mut args: Vec<String> = command
         .iter()
         .map(|arg| {
@@ -519,10 +687,26 @@ fn rewrite_command(
             }
             let candidate = working_directory.join(relative);
             let inside = root.join(relative);
-            if candidate.is_file() {
-                Ok((candidate, args))
-            } else if inside.is_file() {
-                Ok((inside, args))
+            if candidate.is_file() || inside.is_file() {
+                let candidate = if candidate.is_file() {
+                    candidate
+                } else {
+                    inside
+                };
+                let executable = candidate
+                    .canonicalize()
+                    .map(crate::plain_path)
+                    .map_err(|source| Error::io("resolve project program", source))?;
+                let project = root
+                    .canonicalize()
+                    .map(crate::plain_path)
+                    .map_err(|source| Error::io("resolve project root", source))?;
+                if !executable.starts_with(project) {
+                    return Err(Error::InvalidMessage(
+                        "path_outside_project: program escapes project".into(),
+                    ));
+                }
+                Ok((executable, args))
             } else {
                 Err(Error::InvalidMessage(format!(
                     "command {other:?} is not the selected runtime or a file in the project"

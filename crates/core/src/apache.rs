@@ -553,10 +553,21 @@ pub fn upstream_for(
             root: site_root(project_root, root)?,
         },
         SiteKind::Proxy { service_id } => {
-            let declared = manifest
+            let service = manifest
                 .service(service_id)
-                .map(|service| service.port)
-                .unwrap_or(0);
+                .ok_or_else(|| Error::InvalidManifest {
+                    detail: format!("proxy site references unknown service {service_id}"),
+                })?;
+            if !service.is_http_endpoint() {
+                return Err(Error::InvalidManifest {
+                    detail: format!("proxy site service {service_id} must expose an HTTP endpoint"),
+                });
+            }
+            let declared = service
+                .endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.port)
+                .unwrap_or(service.port);
             let port = live_port
                 .filter(|port| *port >= 1024)
                 .or(if declared >= 1024 {

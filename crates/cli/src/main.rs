@@ -154,6 +154,24 @@ async fn run() -> stackyard_core::Result<()> {
             );
             Ok(())
         }
+        [cmd, project, scope, package] if cmd == "select-scope" => {
+            let dir = ensure_engine(&data_dir).await?;
+            print_outcome(
+                &roundtrip_within(
+                    &dir,
+                    Command::SelectScopePackage {
+                        project_id: project.clone(),
+                        scope_id: scope.clone(),
+                        package_id: package.clone(),
+                    },
+                    std::time::Duration::from_secs(45),
+                )
+                .await?,
+            );
+            Ok(())
+        }
+        [cmd, root] if cmd == "preview" => preview_command(&data_dir, root, None),
+        [cmd, root, draft] if cmd == "preview" => preview_command(&data_dir, root, Some(draft)),
         [cmd, path] if cmd == "import" => {
             let dir = ensure_engine(&data_dir).await?;
             print_outcome(
@@ -463,11 +481,41 @@ async fn run() -> stackyard_core::Result<()> {
 }
 
 async fn php_command(dir: &std::path::Path, args: &[String]) -> stackyard_core::Result<()> {
-    let command = match args {
+    let (scope_id, args) = take_scope_id(args)?;
+    let command = match args.as_slice() {
         [action, project] if action == "status" => Command::PhpStatus { project_id: project.clone() },
         [action, project, extensions @ ..] if action == "profile" => Command::PhpApplyProfile { project_id: project.clone(), extensions: extensions.to_vec() },
         [action, project, id] if action == "install-extension" => Command::PhpInstallExtension { project_id: project.clone(), catalog_id: id.clone() },
         _ => return Err(stackyard_core::Error::InvalidMessage("usage: stackyard php status PROJECT | profile PROJECT [EXTENSION...] | install-extension PROJECT CATALOG_ID".into())),
+    };
+    let command = match (scope_id, command) {
+        (Some(scope_id), Command::PhpStatus { project_id }) => Command::PhpStatusScoped {
+            project_id,
+            scope_id,
+        },
+        (
+            Some(scope_id),
+            Command::PhpApplyProfile {
+                project_id,
+                extensions,
+            },
+        ) => Command::PhpApplyProfileScoped {
+            project_id,
+            scope_id,
+            extensions,
+        },
+        (
+            Some(scope_id),
+            Command::PhpInstallExtension {
+                project_id,
+                catalog_id,
+            },
+        ) => Command::PhpInstallExtensionScoped {
+            project_id,
+            scope_id,
+            catalog_id,
+        },
+        (_, command) => command,
     };
     let outcome = roundtrip_within(dir, command, std::time::Duration::from_secs(120)).await?;
     if let Outcome::Operation { id, .. } = &outcome {
@@ -526,7 +574,25 @@ async fn cache_command(data_dir: &std::path::Path, args: &[String]) -> stackyard
 }
 
 async fn deps_command(dir: &std::path::Path, args: &[String]) -> stackyard_core::Result<()> {
-    let (scope, positional) = split_scope(args)?;
+    let (scope_id, args) = take_scope_id(args)?;
+    if scope_id.is_some() && args.iter().any(|a| a == "--scope") {
+        return Err(stackyard_core::Error::InvalidMessage(
+            "choose --scope DIR or --scope-id ID, not both".into(),
+        ));
+    }
+    if let Some(scope_id) = scope_id {
+        let command=match args.as_slice() {
+            [a,p] if a=="install"=>Command::DepInstallScoped{project_id:p.clone(),scope_id},
+            [a,p] if a=="list"=>Command::DepListScoped{project_id:p.clone(),scope_id},
+            [a,p] if a=="recover"=>Command::DepRecoverScoped{project_id:p.clone(),scope_id},
+            [a,p,package] if a=="add"=>Command::DepAddScoped{project_id:p.clone(),scope_id,package:package.clone()},
+            [a,p,package] if a=="remove"=>Command::DepRemoveScoped{project_id:p.clone(),scope_id,package:package.clone()},
+            [a,p,package] if a=="update"=>Command::DepUpdateScoped{project_id:p.clone(),scope_id,package:package.clone()},
+            _=>return Err(stackyard_core::Error::InvalidMessage("scoped dependency action needs install/list/recover PROJECT or add/remove/update PROJECT PACKAGE".into())),
+        };
+        return wait_task(dir, &roundtrip(dir, command).await?).await;
+    }
+    let (scope, positional) = split_scope(&args)?;
     let started = match positional.as_slice() {
         [action, id] if action == "install" => {
             roundtrip(
@@ -611,6 +677,64 @@ async fn deps_command(dir: &std::path::Path, args: &[String]) -> stackyard_core:
         }
     };
     wait_task(dir, &started).await
+}
+
+fn take_scope_id(args: &[String]) -> stackyard_core::Result<(Option<String>, Vec<String>)> {
+    let mut scope = None;
+    let mut positional = Vec::new();
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == "--scope-id" {
+            if scope.is_some() {
+                return Err(stackyard_core::Error::InvalidMessage(
+                    "--scope-id was repeated".into(),
+                ));
+            }
+            scope = Some(
+                iter.next()
+                    .ok_or_else(|| {
+                        stackyard_core::Error::InvalidMessage("--scope-id needs an ID".into())
+                    })?
+                    .clone(),
+            );
+        } else {
+            positional.push(arg.clone());
+        }
+    }
+    Ok((scope, positional))
+}
+
+fn preview_command(
+    data_dir: &std::path::Path,
+    root: &str,
+    draft: Option<&String>,
+) -> stackyard_core::Result<()> {
+    use std::io::Read;
+    let path = draft
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(root).join("stackyard.toml"));
+    let file = std::fs::File::open(path)
+        .map_err(|e| stackyard_core::Error::io("read preview draft", e))?;
+    let mut text = String::new();
+    file.take(65537)
+        .read_to_string(&mut text)
+        .map_err(|e| stackyard_core::Error::io("read bounded preview draft", e))?;
+    let store = stackyard_core::Store::open_read_only(data_dir)?;
+    let result = stackyard_core::preview::preview_request(
+        &stackyard_core::preview::PreviewRequest {
+            root: root.into(),
+            manifest_text: text,
+            project_id: None,
+            selection_overrides: Vec::new(),
+        },
+        store.as_ref(),
+    )?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&result)
+            .map_err(|e| stackyard_core::Error::InvalidMessage(e.to_string()))?
+    );
+    Ok(())
 }
 
 fn split_scope(args: &[String]) -> stackyard_core::Result<(String, Vec<String>)> {
@@ -759,6 +883,7 @@ async fn db_command(data_dir: &std::path::Path, args: &[String]) -> stackyard_co
 }
 
 fn print_help() {
+    println!("Scoped dependency/PHP operations accept --scope-id ID; legacy --scope DIR retains its path meaning.");
     let default = default_data_dir();
     println!(
         "stackyard controls the per-user engine.\n\n\
@@ -791,6 +916,8 @@ fn print_help() {
          stackyard deps list ID [--scope DIR]\n  \
          stackyard deps recover ID [--scope DIR]\n  \
          stackyard deps cancel TASK\n  \
+         stackyard preview ROOT [DRAFT_FILE]\n  \
+         stackyard select-scope PROJECT SCOPE_ID PACKAGE_ID\n  \
          stackyard php status PROJECT\n  \
          stackyard php profile PROJECT [EXTENSION...]\n  \
          stackyard php install-extension PROJECT CATALOG_ID\n  \
@@ -831,6 +958,11 @@ fn print_help() {
 
 fn print_outcome(outcome: &Outcome) {
     match outcome {
+        Outcome::ProjectPreview { preview } => println!(
+            "{}",
+            serde_json::to_string_pretty(preview)
+                .unwrap_or_else(|_| "preview serialization failed".into())
+        ),
         Outcome::Caches { instances } => {
             if instances.is_empty() {
                 println!("caches: none");

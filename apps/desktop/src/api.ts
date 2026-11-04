@@ -24,12 +24,19 @@ export type Service = {
   pid: number | null;
   port: number | null;
   detail: string;
+  scopeId: string;
+  readinessState: string;
+  readiness: Readiness | null;
+  httpStatus: number | null;
+  endpoint: { protocol: "http" | "tcp" | "fastcgi"; requestedPort: number; resolvedPort: number | null } | null;
 };
+export type Scope = { id: string; directory: string; runtime: string; manager: string; managerDetail: string; selections: Selection[] };
 export type Selection = {
   role: string;
   packageId: string;
   version: string;
   source: string;
+  origin: "scope" | "project" | "global";
 };
 export type Project = {
   id: string;
@@ -39,6 +46,7 @@ export type Project = {
   managerDetail: string;
   selections: Selection[];
   services: Service[];
+  scopes: Scope[];
 };
 export type Operation = {
   id: string;
@@ -132,7 +140,28 @@ export function errorText(err: unknown): string {
   return String(err);
 }
 
+// Preview shares the protocol's snake_case DTOs verbatim; view adapters use camelCase.
+export type PhpProject = {
+  identity: { version: string; target: string; architecture: string; thread_safe: boolean; compiler: string; api: string; zend_api: string; debug: boolean; extension_build: string; zend_extension_build: string };
+  profile: unknown | null; inventory: unknown[]; available: unknown[]; limitations: string;
+};
+export type Diagnostic = { code: string; severity: "error" | "info"; field: string; scope_id?: string; service_id?: string; message: string };
+export type Readiness = { kind: "http"; path: string; statuses: number[]; timeout_secs: number } | { kind: "tcp"; timeout_secs: number } | { kind: "process"; grace_ms: number };
+export type PreviewRequest = { root: string; manifest_text: string; project_id?: string | null; selection_overrides?: { scope_id: string; role: string; package_id: string }[] };
+export type ProjectPreview = {
+  can_apply: boolean;
+  scopes: { id: string; runtime: string; manager: string; runtime_package_id: string | null; tool_package_id: string | null; environment_state: string }[];
+  services: { id: string; scope_id: string; endpoint: { protocol: "http" | "tcp" | "fastcgi"; port: number } | null; resolved_port: number | null; readiness: Readiness }[];
+  diagnostics: Diagnostic[];
+};
+
 export const api = {
+  previewProject: (draft: PreviewRequest) => invoke<ProjectPreview>("preview_project", { draft }),
+  selectScopePackage: (projectId: string, scopeId: string, packageId: string) => invoke<Project>("select_scope_package", { projectId, scopeId, packageId }),
+  startDependencyScoped: (projectId: string, scopeId: string, action: string, packageName = "") => invoke<Task>("start_dependency_scoped", { projectId, scopeId, action, package: packageName }),
+  phpStatusScoped: (projectId: string, scopeId: string) => invoke<PhpProject>("php_status_scoped", { projectId, scopeId }),
+  phpApplyProfileScoped: (projectId: string, scopeId: string, extensions: string[]) => invoke<PhpProject>("php_apply_profile_scoped", { projectId, scopeId, extensions }),
+  phpInstallExtensionScoped: (projectId: string, scopeId: string, catalogId: string) => invoke<unknown>("php_install_extension_scoped", { projectId, scopeId, catalogId }),
   status: () => invoke<Status>("engine_status"),
   setting: (key: string) => invoke<string | null>("engine_setting", { key }),
   putSetting: (key: string, value: string) => invoke<void>("put_setting", { key, value }),

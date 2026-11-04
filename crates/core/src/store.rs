@@ -6,7 +6,23 @@ use rusqlite::{params, Connection};
 use crate::error::{Error, Result};
 use crate::protocol::{validate_setting_key, validate_setting_value};
 
-const SCHEMA_VERSION: u32 = 7;
+const SCHEMA_VERSION: u32 = 8;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ScopeSelectionRecord {
+    pub project_id: String,
+    pub scope_id: String,
+    pub role: String,
+    pub package_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ServiceObservationRecord {
+    pub project_id: String,
+    pub service_id: String,
+    pub readiness_state: String,
+    pub http_status: Option<u16>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CacheInstanceRecord {
@@ -290,7 +306,7 @@ impl Store {
         let count: i64 = self
             .conn
             .query_row(
-                "SELECT COUNT(*) FROM selections AS s
+                "SELECT COUNT(*) FROM (SELECT project_id,package_id FROM selections UNION ALL SELECT project_id,package_id FROM scope_selections) AS s
                  JOIN processes AS p ON p.project_id = s.project_id
                  WHERE s.package_id = ?1 AND p.state IN ('starting', 'running', 'orphaned')",
                 params![package_id],
@@ -603,7 +619,7 @@ impl Store {
         let count: i64 = self
             .conn
             .query_row(
-                "SELECT COUNT(*) FROM selections WHERE package_id = ?1",
+                "SELECT (SELECT COUNT(*) FROM selections WHERE package_id=?1) + (SELECT COUNT(*) FROM scope_selections WHERE package_id=?1)",
                 params![package_id],
                 |row| row.get(0),
             )
@@ -847,6 +863,125 @@ impl Store {
             tx.commit()
                 .map_err(|source| Error::database("commit migration 7", source))?;
         }
+        if self.schema_version()? < 8 {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .map_err(|source| Error::database("begin migration 8", source))?;
+            tx.execute_batch("CREATE TABLE scope_selections (
+                project_id TEXT NOT NULL,scope_id TEXT NOT NULL,role TEXT NOT NULL,package_id TEXT NOT NULL,
+                PRIMARY KEY(project_id,scope_id,role),FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,FOREIGN KEY(package_id) REFERENCES packages(id));
+                CREATE TABLE scope_selection_history (id INTEGER PRIMARY KEY AUTOINCREMENT,project_id TEXT NOT NULL,scope_id TEXT NOT NULL,role TEXT NOT NULL,package_id TEXT NOT NULL,previous_package_id TEXT,recorded_at INTEGER NOT NULL);
+                CREATE TABLE scope_environments (project_id TEXT NOT NULL,scope_id TEXT NOT NULL,path TEXT NOT NULL,PRIMARY KEY(project_id,scope_id),FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
+                CREATE TABLE service_observations (project_id TEXT NOT NULL,service_id TEXT NOT NULL,readiness_state TEXT NOT NULL,http_status INTEGER,PRIMARY KEY(project_id,service_id),FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);")
+                .map_err(|source|Error::database("apply migration 8",source))?;
+            tx.execute(
+                "INSERT INTO schema_migrations(version,applied_at) VALUES(8,?1)",
+                params![now_unix()],
+            )
+            .map_err(|source| Error::database("record migration 8", source))?;
+            tx.commit()
+                .map_err(|source| Error::database("commit migration 8", source))?;
+        }
+        Ok(())
+    }
+
+    /// Preview snapshots never create/migrate/retarget local state.
+    pub fn open_read_only(data_dir: &Path) -> Result<Option<Self>> {
+        let path = data_dir.join("state.sqlite3");
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|source| Error::database("open read-only state snapshot", source))?;
+        let store = Self { conn };
+        if store.schema_version()? > SCHEMA_VERSION {
+            return Err(Error::SchemaTooNew {
+                found: store.schema_version()?,
+                supported: SCHEMA_VERSION,
+            });
+        }
+        Ok(Some(store))
+    }
+
+    pub fn get_scope_selection(
+        &self,
+        project: &str,
+        scope: &str,
+        role: &str,
+    ) -> Result<Option<String>> {
+        if self.schema_version()? < 8 {
+            return Ok(None);
+        }
+        use rusqlite::OptionalExtension;
+        self.conn.query_row("SELECT package_id FROM scope_selections WHERE project_id=?1 AND scope_id=?2 AND role=?3",params![project,scope,role],|row|row.get(0)).optional()
+            .map_err(|source|Error::database("read scope selection",source))
+    }
+
+    pub fn select_scope_package(
+        &self,
+        project: &str,
+        scope: &str,
+        role: &str,
+        package: &str,
+    ) -> Result<()> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|source| Error::database("begin scope selection", source))?;
+        let previous = self.get_scope_selection(project, scope, role)?;
+        tx.execute("INSERT INTO scope_selections (project_id,scope_id,role,package_id) VALUES (?1,?2,?3,?4) ON CONFLICT(project_id,scope_id,role) DO UPDATE SET package_id=excluded.package_id",params![project,scope,role,package])
+            .map_err(|source|Error::database("write scope selection",source))?;
+        tx.execute("INSERT INTO scope_selection_history (project_id,scope_id,role,package_id,previous_package_id,recorded_at) VALUES (?1,?2,?3,?4,?5,?6)",params![project,scope,role,package,previous,now_unix()])
+            .map_err(|source|Error::database("record scope selection",source))?;
+        tx.commit()
+            .map_err(|source| Error::database("commit scope selection", source))
+    }
+
+    pub fn scope_selections(&self, project: &str) -> Result<Vec<ScopeSelectionRecord>> {
+        let mut stmt=self.conn.prepare("SELECT project_id,scope_id,role,package_id FROM scope_selections WHERE project_id=?1 ORDER BY scope_id,role").map_err(|source|Error::database("prepare scope selections",source))?;
+        let rows = stmt
+            .query_map(params![project], |row| {
+                Ok(ScopeSelectionRecord {
+                    project_id: row.get(0)?,
+                    scope_id: row.get(1)?,
+                    role: row.get(2)?,
+                    package_id: row.get(3)?,
+                })
+            })
+            .map_err(|source| Error::database("query scope selections", source))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|source| Error::database("read scope selections", source))
+    }
+
+    pub fn get_scope_environment(&self, project: &str, scope: &str) -> Result<Option<String>> {
+        use rusqlite::OptionalExtension;
+        self.conn
+            .query_row(
+                "SELECT path FROM scope_environments WHERE project_id=?1 AND scope_id=?2",
+                params![project, scope],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|source| Error::database("read scope environment", source))
+    }
+
+    pub fn bind_scope_environment(&self, project: &str, scope: &str, path: &str) -> Result<()> {
+        self.conn.execute("INSERT INTO scope_environments (project_id,scope_id,path) VALUES (?1,?2,?3) ON CONFLICT(project_id,scope_id) DO UPDATE SET path=excluded.path",params![project,scope,path]).map_err(|source|Error::database("bind scope environment",source))?;
+        Ok(())
+    }
+
+    pub fn get_service_observation(
+        &self,
+        project: &str,
+        service: &str,
+    ) -> Result<Option<ServiceObservationRecord>> {
+        use rusqlite::OptionalExtension;
+        self.conn.query_row("SELECT project_id,service_id,readiness_state,http_status FROM service_observations WHERE project_id=?1 AND service_id=?2",params![project,service],|row|Ok(ServiceObservationRecord{project_id:row.get(0)?,service_id:row.get(1)?,readiness_state:row.get(2)?,http_status:row.get(3)?})).optional().map_err(|source|Error::database("read service observation",source))
+    }
+
+    pub fn upsert_service_observation(&self, record: &ServiceObservationRecord) -> Result<()> {
+        self.conn.execute("INSERT INTO service_observations (project_id,service_id,readiness_state,http_status) VALUES (?1,?2,?3,?4) ON CONFLICT(project_id,service_id) DO UPDATE SET readiness_state=excluded.readiness_state,http_status=excluded.http_status",params![record.project_id,record.service_id,record.readiness_state,record.http_status]).map_err(|source|Error::database("write service observation",source))?;
         Ok(())
     }
 
@@ -1184,7 +1319,7 @@ mod tests {
         let dir = temp_dir();
         {
             let store = Store::open(&dir).expect("open");
-            assert_eq!(store.schema_version().expect("version"), 7);
+            assert_eq!(store.schema_version().expect("version"), 8);
             store.put("display_name", "Ada").expect("put");
             assert_eq!(
                 store.last_event().expect("event").as_deref(),
@@ -1192,13 +1327,130 @@ mod tests {
             );
         }
         let store = Store::open(&dir).expect("reopen");
-        assert_eq!(store.schema_version().expect("version"), 7);
+        assert_eq!(store.schema_version().expect("version"), 8);
         assert_eq!(
             store.get("display_name").expect("get").as_deref(),
             Some("Ada")
         );
         assert!(store.get("missing").expect("missing").is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn migration8_preserves_legacy_state_and_scope_bindings_survive_reopen() {
+        let dir = temp_dir();
+        let env = dir.join("environments/legacy");
+        std::fs::create_dir_all(&env).unwrap();
+        std::fs::write(env.join("marker"), b"preserved").unwrap();
+        let active = dir.join("php/profiles/legacy/active.json");
+        std::fs::create_dir_all(active.parent().unwrap()).unwrap();
+        std::fs::write(&active, b"unchanged-active-pointer").unwrap();
+        {
+            let store = Store::open(&dir).unwrap();
+            store
+                .insert_project(&ProjectRecord {
+                    id: "legacy".into(),
+                    name: "legacy".into(),
+                    root: "project-root".into(),
+                })
+                .unwrap();
+            store
+                .insert_package(&PackageRecord {
+                    id: "python-old".into(),
+                    kind: "runtime".into(),
+                    name: "python".into(),
+                    version: "3.12.16".into(),
+                    target: crate::current_target().into(),
+                    source: "existing".into(),
+                    path: "/external".into(),
+                    launch: "/external/python".into(),
+                    digest: None,
+                    removable: false,
+                })
+                .unwrap();
+            store
+                .select_package("legacy", "python", "python-old")
+                .unwrap();
+            store
+                .record_selection_history("legacy", "python", "python-old", None)
+                .unwrap();
+            store
+                .upsert_process(&ProcessRecord {
+                    project_id: "legacy".into(),
+                    service_id: "api".into(),
+                    state: "stopped".into(),
+                    pid: None,
+                    process_group: Some(47),
+                    started_at: Some(1),
+                    identity: Some("original".into()),
+                    port: Some(8123),
+                    exit_code: Some(0),
+                    detail: "kept".into(),
+                })
+                .unwrap();
+            // Remove precisely migration 8's additions to reproduce the schema-7 input.
+            store.conn.execute_batch("DROP TABLE scope_selections; DROP TABLE scope_selection_history; DROP TABLE scope_environments; DROP TABLE service_observations; DELETE FROM schema_migrations WHERE version=8;").unwrap();
+        }
+        {
+            let readonly = Store::open_read_only(&dir).unwrap().unwrap();
+            assert_eq!(readonly.schema_version().unwrap(), 7);
+            assert_eq!(
+                readonly
+                    .get_scope_selection("legacy", "default", "python")
+                    .unwrap(),
+                None
+            );
+            assert!(readonly.put("forbidden", "write").is_err());
+        }
+        {
+            let store = Store::open(&dir).unwrap();
+            assert_eq!(store.schema_version().unwrap(), 8);
+            assert_eq!(
+                store.get_selection("legacy", "python").unwrap().as_deref(),
+                Some("python-old")
+            );
+            assert_eq!(
+                store
+                    .conn
+                    .query_row("SELECT count(*) FROM selection_history", [], |r| r
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            let process = store.list_processes("legacy").unwrap().remove(0);
+            assert_eq!(process.identity.as_deref(), Some("original"));
+            assert_eq!(process.port, Some(8123));
+            assert!(store
+                .get_service_observation("legacy", "api")
+                .unwrap()
+                .is_none());
+            store
+                .bind_scope_environment("legacy", "default", env.to_str().unwrap())
+                .unwrap();
+            store
+                .select_scope_package("legacy", "default", "python", "python-old")
+                .unwrap();
+        }
+        let store = Store::open(&dir).unwrap();
+        assert_eq!(
+            store
+                .get_scope_environment("legacy", "default")
+                .unwrap()
+                .as_deref(),
+            env.to_str()
+        );
+        assert_eq!(
+            store
+                .get_scope_selection("legacy", "default", "python")
+                .unwrap()
+                .as_deref(),
+            Some("python-old")
+        );
+        assert!(store.package_is_selected("python-old").unwrap());
+        assert_eq!(std::fs::read(env.join("marker")).unwrap(), b"preserved");
+        assert_eq!(std::fs::read(active).unwrap(), b"unchanged-active-pointer");
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

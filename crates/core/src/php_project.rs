@@ -116,8 +116,45 @@ pub fn php_launch_config(
 }
 
 pub fn php_project_view(data_dir: &Path, project_id: &str) -> Result<PhpProjectView> {
-    let _ = crate::load_project_manifest(data_dir, project_id)?;
-    let runtime = crate::resolve_runtime(data_dir, project_id, RuntimeRole::Php)?;
+    php_scope_view(data_dir, project_id, None)
+}
+
+pub fn php_scope_identity(
+    data_dir: &Path,
+    project_id: &str,
+    scope_id: Option<&str>,
+) -> Result<(String, String)> {
+    let (_, manifest) = crate::load_project_manifest(data_dir, project_id)?;
+    let scopes: Vec<_> = manifest
+        .scopes
+        .iter()
+        .filter(|s| s.runtime == RuntimeRole::Php)
+        .collect();
+    let scope = match scope_id {
+        Some(id) => scopes.into_iter().find(|s| s.id == id).ok_or_else(|| {
+            Error::InvalidMessage("scope_unknown: PHP scope was not found".into())
+        })?,
+        None if scopes.len() == 1 => scopes[0],
+        _ => {
+            return Err(Error::InvalidMessage(
+                "scope_required: choose one PHP scope".into(),
+            ))
+        }
+    };
+    Ok((
+        scope.id.clone(),
+        crate::scopes::scope_profile_key(project_id, &scope.id, manifest.schema)?,
+    ))
+}
+
+pub fn php_scope_view(
+    data_dir: &Path,
+    project_id: &str,
+    scope_id: Option<&str>,
+) -> Result<PhpProjectView> {
+    let (scope, key) = php_scope_identity(data_dir, project_id, scope_id)?;
+    let runtime =
+        crate::scopes::resolve_scope_runtime(data_dir, project_id, &scope, RuntimeRole::Php)?;
     let identity = php::probe_php(Path::new(&runtime.launch))?;
     let root = if runtime.source == "existing" {
         Path::new(&runtime.launch)
@@ -178,7 +215,7 @@ pub fn php_project_view(data_dir: &Path, project_id: &str) -> Result<PhpProjectV
     }
     inventory.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(PhpProjectView {
-        identity: identity.clone(), profile: php::read_php_profile(data_dir, project_id)?, inventory,
+        identity: identity.clone(), profile: php::read_php_profile(data_dir, &key)?, inventory,
         available: catalog.into_iter().filter(|item| php::php_abi_compatible(&item.abi, &identity)).collect(),
         limitations: "Native extensions require compatible PHP builds and their native libraries. Managed Memcached is a separate server capability. macOS PHP/artifact launches remain pending.".into(),
     })
@@ -189,10 +226,19 @@ pub fn apply_project_php_profile(
     project_id: &str,
     names: &[String],
 ) -> Result<PhpProjectView> {
+    apply_scope_php_profile(data_dir, project_id, None, names)
+}
+
+pub fn apply_scope_php_profile(
+    data_dir: &Path,
+    project_id: &str,
+    scope_id: Option<&str>,
+    names: &[String],
+) -> Result<PhpProjectView> {
     // The engine's supervisor serializes rollout and owns affected worker
     // restart/rollback. This primitive validates and atomically promotes ini.
     let _ = crate::project_view(data_dir, project_id)?;
-    let view = php_project_view(data_dir, project_id)?;
+    let view = php_scope_view(data_dir, project_id, scope_id)?;
     let mut artifacts = Vec::new();
     for name in names {
         let mut matches: Vec<_> = view.inventory.iter().filter(|a| a.id == *name).collect();
@@ -207,9 +253,11 @@ pub fn apply_project_php_profile(
         }
         artifacts.push(matches[0].clone());
     }
-    let runtime = crate::resolve_runtime(data_dir, project_id, RuntimeRole::Php)?;
-    php::apply_php_profile(data_dir, project_id, Path::new(&runtime.launch), &artifacts)?;
-    php_project_view(data_dir, project_id)
+    let (scope, key) = php_scope_identity(data_dir, project_id, scope_id)?;
+    let runtime =
+        crate::scopes::resolve_scope_runtime(data_dir, project_id, &scope, RuntimeRole::Php)?;
+    php::apply_php_profile(data_dir, &key, Path::new(&runtime.launch), &artifacts)?;
+    php_scope_view(data_dir, project_id, scope_id)
 }
 
 /// Version-only probe; dependency scripts use the engine's cancellable process group.
@@ -269,6 +317,30 @@ pub fn probe_composer(php: &Path, phar: &Path) -> Result<String> {
         });
     }
     Ok(version)
+}
+
+/// Active pointers are local owned state, independent of a possibly edited manifest.
+pub fn active_profile_keys(data: &Path) -> Result<Vec<String>> {
+    let root = data.join("php").join("profiles");
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    let mut keys = Vec::new();
+    for entry in fs::read_dir(&root).map_err(|e| Error::io("read PHP profile owners", e))? {
+        let entry = entry.map_err(|e| Error::io("read PHP profile owner", e))?;
+        if entry
+            .file_type()
+            .map_err(|e| Error::io("inspect PHP profile owner", e))?
+            .is_dir()
+            && entry.path().join("active.json").is_file()
+        {
+            if let Some(key) = entry.file_name().to_str() {
+                keys.push(key.to_string());
+            }
+        }
+    }
+    keys.sort();
+    Ok(keys)
 }
 
 #[cfg(test)]
@@ -361,6 +433,7 @@ mod tests {
             root,
             &manifest,
             crate::DepRequest {
+                scope_id: None,
                 action: crate::DepAction::Install,
                 package: None,
                 scope: ".",

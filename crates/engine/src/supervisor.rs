@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -10,10 +9,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use stackyard_core::{
     append_log, load_project_manifest, log_tail, project_view, require_startable, service_launch,
     service_log_path, start_order, Error, ProcessRecord, ProjectRecord, ProjectView, RestartPolicy,
-    Result, RuntimeRole, ServiceSpec, Store,
+    Result, RuntimeRole, ServiceObservationRecord, ServiceSpec, Store,
 };
 
 use crate::group::{self, GroupProcess};
+use crate::readiness::{self, Wait};
 
 pub struct Supervisor {
     data_dir: PathBuf,
@@ -95,7 +95,12 @@ impl Supervisor {
             let service = manifest.service(id).expect("service from order");
             let root = PathBuf::from(&project.root);
             let _ = stackyard_core::contained_dir(&root, &service.working_directory)?;
-            let _ = stackyard_core::resolve_runtime(&self.data_dir, project_id, service.runtime)?;
+            let _ = stackyard_core::scopes::resolve_scope_runtime(
+                &self.data_dir,
+                project_id,
+                &service.scope_id,
+                service.runtime,
+            )?;
         }
         let cancel = Arc::new(AtomicBool::new(false));
         self.cancels
@@ -189,6 +194,59 @@ impl Supervisor {
     where
         F: FnOnce() -> Result<T>,
     {
+        let (_, manifest) = load_project_manifest(&self.data_dir, project_id)?;
+        let php_scopes: Vec<_> = manifest
+            .scopes
+            .iter()
+            .filter(|scope| scope.runtime == RuntimeRole::Php)
+            .collect();
+        if manifest.schema > 1 && php_scopes.len() > 1 {
+            return Err(Error::InvalidMessage("PHP reconfigure requires an explicit scope when the project has multiple PHP scopes".into()));
+        }
+        let (scope_id, profile_key) = match php_scopes.first() {
+            Some(scope) if manifest.schema > 1 => (
+                Some(scope.id.as_str()),
+                stackyard_core::scopes::scope_profile_key(project_id, &scope.id, manifest.schema)?,
+            ),
+            _ => (None, project_id.to_string()),
+        };
+        self.reconfigure_php_key(project_id, scope_id, &profile_key, apply)
+    }
+
+    pub fn reconfigure_php_scope<T, F>(
+        self: &Arc<Self>,
+        project_id: &str,
+        scope_id: &str,
+        apply: F,
+    ) -> Result<T>
+    where
+        F: FnOnce() -> Result<T>,
+    {
+        let (_, manifest) = load_project_manifest(&self.data_dir, project_id)?;
+        let scope = manifest
+            .scopes
+            .iter()
+            .find(|scope| scope.id == scope_id)
+            .ok_or_else(|| Error::InvalidMessage(format!("unknown PHP scope {scope_id}")))?;
+        if scope.runtime != RuntimeRole::Php {
+            return Err(Error::InvalidMessage(format!(
+                "scope {scope_id} is not a PHP scope"
+            )));
+        }
+        let key = stackyard_core::scopes::scope_profile_key(project_id, scope_id, manifest.schema)?;
+        self.reconfigure_php_key(project_id, Some(scope_id), &key, apply)
+    }
+
+    fn reconfigure_php_key<T, F>(
+        self: &Arc<Self>,
+        project_id: &str,
+        scope_id: Option<&str>,
+        profile_key: &str,
+        apply: F,
+    ) -> Result<T>
+    where
+        F: FnOnce() -> Result<T>,
+    {
         let _operation = self.operation(project_id)?;
         if self.shutdown.load(Ordering::Relaxed) {
             return Err(Error::OperationFailed("the engine is stopping".into()));
@@ -214,7 +272,9 @@ impl Supervisor {
         let mut workers = Vec::new();
         for id in start_order(&manifest.services)? {
             let service = manifest.service(&id).expect("ordered service");
-            if service.runtime != RuntimeRole::Php {
+            if service.runtime != RuntimeRole::Php
+                || scope_id.is_some_and(|scope| service.scope_id != scope)
+            {
                 continue;
             }
             let Some(row) = rows
@@ -237,25 +297,27 @@ impl Supervisor {
                         )
                 });
             if !owned {
-                return Err(Error::ProjectBusy { id: project_id.into(), state: format!("PHP service {id} is not owned or is exiting; refresh status before retrying") });
+                return Err(Error::ProjectBusy {
+                    id: project_id.into(),
+                    state: format!(
+                        "PHP service {id} is not owned or is exiting; refresh status before retrying"
+                    ),
+                });
             }
-            let port = row
-                .port
-                .and_then(|port| u16::try_from(port).ok())
-                .filter(|port| *port != 0)
-                .ok_or_else(|| {
-                    Error::OperationFailed(format!("PHP service {id} has no valid observed port"))
-                })?;
+            let port = php_reconfigure_port(service.endpoint.is_some(), row.port, &id)?;
             let mut service = service.clone();
             service.port = port;
+            if let Some(endpoint) = service.endpoint.as_mut() {
+                endpoint.port = port;
+            }
             workers.push(service);
         }
-        let previous = stackyard_core::php::read_php_profile(&self.data_dir, project_id)?;
+        let previous = stackyard_core::php::read_php_profile(&self.data_dir, profile_key)?;
         let result = match apply() {
             Ok(result) => result,
             Err(error) => {
-                if stackyard_core::php::read_php_profile(&self.data_dir, project_id)? != previous {
-                    stackyard_core::php::rollback_php_profile(&self.data_dir, project_id, previous.as_ref())
+                if stackyard_core::php::read_php_profile(&self.data_dir, profile_key)? != previous {
+                    stackyard_core::php::rollback_php_profile(&self.data_dir, profile_key, previous.as_ref())
                         .map_err(|rollback| Error::OperationFailed(format!("PHP candidate failed: {error}; restoring the prior profile also failed: {rollback}; current workers were left running")))?;
                 }
                 return Err(error);
@@ -271,7 +333,7 @@ impl Supervisor {
             let cleanup = self.stop_php_workers(&project, &workers);
             let restored = stackyard_core::php::rollback_php_profile(
                 &self.data_dir,
-                project_id,
+                profile_key,
                 previous.as_ref(),
             );
             let outcome = match (cleanup, restored) {
@@ -343,7 +405,7 @@ impl Supervisor {
                 None,
                 None,
                 None,
-                Some(i64::from(service.port)),
+                recorded_port(service.port),
                 None,
                 "PHP profile rollout",
             )?;
@@ -365,7 +427,7 @@ impl Supervisor {
                 None,
                 None,
                 None,
-                Some(i64::from(service.port)),
+                recorded_port(service.port),
                 None,
                 "PHP profile rollout",
             )?;
@@ -466,7 +528,10 @@ impl Supervisor {
         service: &ServiceSpec,
         cancel: &AtomicBool,
     ) -> Result<bool> {
-        let port = reserve_port(service.port)?;
+        let port = match service.endpoint.as_ref() {
+            Some(endpoint) => reserve_port(endpoint.port)?,
+            None => 0,
+        };
         let log_path = service_log_path(&self.data_dir, &project.id, &service.id);
         let stop = Arc::new(AtomicBool::new(false));
         let key = live_key(&project.id, &service.id);
@@ -491,6 +556,7 @@ impl Supervisor {
                 return Ok(false);
             }
             let launch = service_launch(&self.data_dir, project, service, port, &service.command)?;
+            self.observe(project, service, "pending", None)?;
             let _ = append_log(
                 &log_path,
                 format!(
@@ -500,11 +566,12 @@ impl Supervisor {
                 )
                 .as_bytes(),
             );
-            let mut group = spawn_grouped(
+            let mut group = group::spawn_grouped_scoped(
                 &launch.program,
                 &launch.args,
                 &launch.working_directory,
                 &launch.env,
+                &launch.env_remove,
                 &log_path,
             )?;
             self.remember(&key, &group);
@@ -517,7 +584,12 @@ impl Supervisor {
                 &self.shutdown,
                 &stop,
             ) {
-                Wait::Ready => {
+                Wait::Ready { http_status } => {
+                    let observation = match service.readiness {
+                        stackyard_core::ReadinessSpec::Process { .. } => "not_checked",
+                        _ => "ready",
+                    };
+                    self.observe(project, service, observation, http_status)?;
                     self.mark_state(
                         project,
                         service,
@@ -525,7 +597,7 @@ impl Supervisor {
                         Some(i64::from(group.pid)),
                         Some(i64::from(group.group_id)),
                         Some(group.identity.clone()),
-                        Some(i64::from(port)),
+                        recorded_port(port),
                         None,
                         "",
                     )?;
@@ -540,7 +612,7 @@ impl Supervisor {
                             None,
                             None,
                             None,
-                            Some(i64::from(port)),
+                            recorded_port(port),
                             None,
                             "cancelled",
                         )?;
@@ -557,7 +629,8 @@ impl Supervisor {
                     );
                     return Ok(true);
                 }
-                Wait::Cancelled => {
+                Wait::Cancelled { http_status } => {
+                    let _ = self.observe(project, service, "not_checked", http_status);
                     group.request_stop();
                     let _ = group.wait_timeout(Duration::from_secs(2));
                     self.forget(&key);
@@ -568,13 +641,18 @@ impl Supervisor {
                         None,
                         None,
                         None,
-                        Some(i64::from(port)),
+                        recorded_port(port),
                         None,
                         "cancelled",
                     )?;
                     return Ok(false);
                 }
-                Wait::Exited { detail, reaped } => {
+                Wait::Exited {
+                    detail,
+                    reaped,
+                    http_status,
+                } => {
+                    let _ = self.observe(project, service, "failed", http_status);
                     if !reaped {
                         group.request_stop();
                         let _ = group.wait_timeout(Duration::from_secs(2));
@@ -600,6 +678,21 @@ impl Supervisor {
                 }
             }
         }
+    }
+
+    fn observe(
+        &self,
+        project: &ProjectRecord,
+        service: &ServiceSpec,
+        state: &str,
+        http_status: Option<u16>,
+    ) -> Result<()> {
+        Store::open(&self.data_dir)?.upsert_service_observation(&ServiceObservationRecord {
+            project_id: project.id.clone(),
+            service_id: service.id.clone(),
+            readiness_state: state.to_string(),
+            http_status,
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -628,7 +721,7 @@ impl Supervisor {
                         None,
                         None,
                         None,
-                        Some(i64::from(port)),
+                        recorded_port(port),
                         None,
                         "stopped",
                     );
@@ -654,7 +747,7 @@ impl Supervisor {
                             None,
                             None,
                             None,
-                            Some(i64::from(port)),
+                            recorded_port(port),
                             None,
                             "stopped",
                         );
@@ -675,18 +768,20 @@ impl Supervisor {
                             None,
                             None,
                             None,
-                            Some(i64::from(port)),
+                            recorded_port(port),
                             None,
                             &detail,
                         );
                         supervisor.forget(&key);
                         return;
                     };
-                    let Ok(next) = spawn_grouped(
+                    let _ = supervisor.observe(&project, &service, "pending", None);
+                    let Ok(mut next) = group::spawn_grouped_scoped(
                         &launch.program,
                         &launch.args,
                         &launch.working_directory,
                         &launch.env,
+                        &launch.env_remove,
                         &log_path,
                     ) else {
                         let _ = supervisor.mark_state(
@@ -696,13 +791,77 @@ impl Supervisor {
                             None,
                             None,
                             None,
-                            Some(i64::from(port)),
+                            recorded_port(port),
                             None,
                             &detail,
                         );
                         supervisor.forget(&key);
                         return;
                     };
+                    match wait_ready(
+                        &mut next,
+                        &service,
+                        port,
+                        &log_path,
+                        &AtomicBool::new(false),
+                        &supervisor.shutdown,
+                        &stop,
+                    ) {
+                        Wait::Ready { http_status } => {
+                            let state = if matches!(
+                                service.readiness,
+                                stackyard_core::ReadinessSpec::Process { .. }
+                            ) {
+                                "not_checked"
+                            } else {
+                                "ready"
+                            };
+                            let _ = supervisor.observe(&project, &service, state, http_status);
+                        }
+                        Wait::Cancelled { http_status } => {
+                            let _ =
+                                supervisor.observe(&project, &service, "not_checked", http_status);
+                            next.request_stop();
+                            let _ = next.wait_timeout(Duration::from_secs(2));
+                            let _ = supervisor.mark_state(
+                                &project,
+                                &service,
+                                "stopped",
+                                None,
+                                None,
+                                None,
+                                recorded_port(port),
+                                None,
+                                "cancelled",
+                            );
+                            supervisor.forget(&key);
+                            return;
+                        }
+                        Wait::Exited {
+                            detail: failed,
+                            reaped,
+                            http_status,
+                        } => {
+                            let _ = supervisor.observe(&project, &service, "failed", http_status);
+                            if !reaped {
+                                next.request_stop();
+                                let _ = next.wait_timeout(Duration::from_secs(2));
+                            }
+                            let _ = supervisor.mark_state(
+                                &project,
+                                &service,
+                                "failed",
+                                None,
+                                None,
+                                None,
+                                recorded_port(port),
+                                None,
+                                &failed,
+                            );
+                            supervisor.forget(&key);
+                            return;
+                        }
+                    }
                     supervisor.remember(&key, &next);
                     let _ = supervisor.mark_state(
                         &project,
@@ -711,7 +870,7 @@ impl Supervisor {
                         Some(i64::from(next.pid)),
                         Some(i64::from(next.group_id)),
                         Some(next.identity.clone()),
-                        Some(i64::from(port)),
+                        recorded_port(port),
                         None,
                         "",
                     );
@@ -725,10 +884,11 @@ impl Supervisor {
                     None,
                     None,
                     None,
-                    Some(i64::from(port)),
+                    recorded_port(port),
                     None,
                     &detail,
                 );
+                let _ = supervisor.observe(&project, &service, "failed", None);
                 supervisor.forget(&key);
                 return;
             }
@@ -910,12 +1070,6 @@ impl Supervisor {
     }
 }
 
-enum Wait {
-    Ready,
-    Cancelled,
-    Exited { detail: String, reaped: bool },
-}
-
 fn wait_ready(
     group: &mut GroupProcess,
     service: &ServiceSpec,
@@ -925,64 +1079,7 @@ fn wait_ready(
     shutdown: &AtomicBool,
     stop: &AtomicBool,
 ) -> Wait {
-    let deadline = Instant::now() + Duration::from_secs(service.ready_timeout_secs);
-    loop {
-        if cancel.load(Ordering::Relaxed)
-            || shutdown.load(Ordering::Relaxed)
-            || stop.load(Ordering::Acquire)
-        {
-            return Wait::Cancelled;
-        }
-        match group.child.try_wait() {
-            Ok(Some(status)) => {
-                group.finish_io();
-                return Wait::Exited {
-                    detail: format!(
-                        "exited {status} before it was ready\n{}",
-                        log_tail(log_path, 800)
-                    ),
-                    reaped: true,
-                };
-            }
-            Ok(None) => {}
-            Err(err) => {
-                return Wait::Exited {
-                    detail: err.to_string(),
-                    reaped: false,
-                };
-            }
-        }
-        let fastcgi = service.runtime == RuntimeRole::Php
-            && service
-                .command
-                .first()
-                .is_some_and(|command| command == "php-cgi");
-        let ready = if fastcgi {
-            TcpStream::connect_timeout(
-                &SocketAddr::from(([127, 0, 0, 1], port)),
-                Duration::from_millis(200),
-            )
-            .is_ok()
-        } else {
-            http_ready(port, &service.ready_path)
-        };
-        if ready {
-            return Wait::Ready;
-        }
-        if Instant::now() >= deadline {
-            return Wait::Exited {
-                detail: format!(
-                    "not ready at {}127.0.0.1:{port}{} within {}s\n{}",
-                    if fastcgi { "tcp://" } else { "http://" },
-                    if fastcgi { "" } else { &service.ready_path },
-                    service.ready_timeout_secs,
-                    log_tail(log_path, 800)
-                ),
-                reaped: false,
-            };
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
+    readiness::wait_ready(group, service, port, log_path, cancel, shutdown, stop)
 }
 
 fn reserve_port(requested: u16) -> Result<u16> {
@@ -1003,40 +1100,30 @@ fn reserve_port(requested: u16) -> Result<u16> {
     Ok(port)
 }
 
-fn http_ready(port: u16, path: &str) -> bool {
-    let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(200)) else {
-        return false;
-    };
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
-    let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
-    if stream.write_all(request.as_bytes()).is_err() {
-        return false;
-    }
-    let mut buf = [0_u8; 128];
-    let Ok(read) = stream.read(&mut buf) else {
-        return false;
-    };
-    let text = String::from_utf8_lossy(&buf[..read]);
-    text.split_whitespace()
-        .nth(1)
-        .and_then(|code| code.parse::<u16>().ok())
-        .is_some_and(|code| (200..300).contains(&code))
-}
-
-fn spawn_grouped(
-    program: &Path,
-    args: &[String],
-    cwd: &Path,
-    env: &[(String, String)],
-    log_path: &Path,
-) -> Result<GroupProcess> {
-    group::spawn_grouped(program, args, cwd, env, log_path)
-}
-
 fn live_key(project: &str, service: &str) -> String {
     format!("{project}\0{service}")
+}
+
+fn recorded_port(port: u16) -> Option<i64> {
+    (port != 0).then_some(i64::from(port))
+}
+
+fn php_reconfigure_port(
+    has_endpoint: bool,
+    observed: Option<i64>,
+    service_id: &str,
+) -> Result<u16> {
+    if !has_endpoint {
+        return Ok(0);
+    }
+    observed
+        .and_then(|port| u16::try_from(port).ok())
+        .filter(|port| *port != 0)
+        .ok_or_else(|| {
+            Error::OperationFailed(format!(
+                "PHP service {service_id} has no valid observed port"
+            ))
+        })
 }
 
 fn process_row(process: &ProcessRecord, state: &str, detail: String) -> ProcessRecord {
@@ -1060,4 +1147,20 @@ fn now_unix() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| i64::try_from(duration.as_secs()).unwrap_or(0))
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{php_reconfigure_port, recorded_port};
+
+    #[test]
+    fn scoped_php_reconfigure_accepts_workers_without_endpoints() {
+        assert_eq!(php_reconfigure_port(false, None, "queue").unwrap(), 0);
+        assert_eq!(recorded_port(0), None);
+        assert_eq!(
+            php_reconfigure_port(true, Some(18321), "web").unwrap(),
+            18321
+        );
+        assert!(php_reconfigure_port(true, None, "web").is_err());
+    }
 }

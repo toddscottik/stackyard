@@ -331,8 +331,8 @@ pub fn remove_package(data_dir: &Path, id: &str) -> Result<()> {
                     .into(),
         });
     }
-    for project in store.list_projects()? {
-        if let Some(profile) = crate::php::read_php_profile(data_dir, &project.id)? {
+    for key in crate::php_project::active_profile_keys(data_dir)? {
+        if let Some(profile) = crate::php::read_php_profile(data_dir, &key)? {
             if profile.executable.starts_with(&path)
                 || profile
                     .extensions
@@ -341,10 +341,7 @@ pub fn remove_package(data_dir: &Path, id: &str) -> Result<()> {
             {
                 return Err(Error::NotRemovable {
                     id: id.to_string(),
-                    reason: format!(
-                        "PHP profile for {} still references this package",
-                        project.id
-                    ),
+                    reason: format!("PHP profile for {} still references this package", key),
                 });
             }
         }

@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::error::{Error, Result};
 use crate::manifest::{ManagerKind, Manifest, RuntimeRole};
-use crate::project::{self, environment_dir, npm_launch};
+use crate::project::{self, npm_launch};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DepAction {
@@ -96,6 +96,7 @@ pub struct DepRequest<'a> {
     pub action: DepAction,
     pub package: Option<&'a str>,
     pub scope: &'a str,
+    pub scope_id: Option<&'a str>,
 }
 
 pub fn plan_dependency(
@@ -110,9 +111,17 @@ pub fn plan_dependency(
         action,
         package,
         scope,
+        scope_id,
     } = request;
-    let manager = resolve_manager(root, manifest)?;
-    let scope_dir = scope_dir(root, scope)?;
+    let resolved = crate::scopes::resolve_dependency_scope(root, manifest, scope_id, scope)?;
+    let manager = resolved.manager;
+    let scope_dir = if manifest.schema == 1 {
+        resolved.directory.clone()
+    } else {
+        resolved.lockfile_root.clone()
+    };
+    let env_dir =
+        crate::scopes::resolved_environment(data_dir, project_id, root, manifest, &resolved.spec)?;
     if let Some(name) = package {
         validate_package_name(name)?;
     } else if matches!(
@@ -136,7 +145,7 @@ pub fn plan_dependency(
             let pnpm = toolchain.pnpm.ok_or_else(|| {
                 Error::InvalidMessage("select a pnpm tool before running pnpm".to_string())
             })?;
-            check_package_manager_field(root, "pnpm", pnpm)?;
+            check_package_manager_field(&scope_dir, "pnpm", pnpm)?;
             node_commands(
                 manager,
                 pnpm.to_path_buf(),
@@ -147,7 +156,9 @@ pub fn plan_dependency(
             )?
         }
         ManagerKind::Pip => {
-            if root.join("uv.lock").is_file() && manifest.manager != Some(ManagerKind::Pip) {
+            if scope_dir.join("uv.lock").is_file()
+                && resolved.spec.manager != Some(ManagerKind::Pip)
+            {
                 return Err(Error::InvalidManifest {
                     detail: "uv.lock is present; pip will not rewrite a uv project".to_string(),
                 });
@@ -158,7 +169,7 @@ pub fn plan_dependency(
             let python = if let Some(venv) = toolchain.venv_python {
                 venv.to_path_buf()
             } else {
-                project::ensure_venv(base, &environment_dir(data_dir, project_id))?
+                project::ensure_venv(base, &env_dir)?
             };
             if matches!(
                 action,
@@ -176,14 +187,7 @@ pub fn plan_dependency(
             let python = toolchain.python.ok_or_else(|| {
                 Error::InvalidMessage("select a python runtime before running uv".to_string())
             })?;
-            uv_commands(
-                uv,
-                python,
-                &environment_dir(data_dir, project_id),
-                root,
-                action,
-                package,
-            )?
+            uv_commands(uv, python, &env_dir, &scope_dir, action, package)?
         }
         ManagerKind::Composer => {
             let php = toolchain.php.ok_or_else(|| {
@@ -192,11 +196,26 @@ pub fn plan_dependency(
             let composer = toolchain.composer.ok_or_else(|| {
                 Error::InvalidMessage("select a Composer phar before running Composer".to_string())
             })?;
+            let profile_key =
+                crate::scopes::scope_profile_key(project_id, &resolved.spec.id, manifest.schema)?;
             composer_commands(
-                data_dir, project_id, php, composer, action, package, &scope_dir,
+                data_dir,
+                &profile_key,
+                php,
+                composer,
+                action,
+                package,
+                &scope_dir,
             )?
         }
     };
+    if resolved.spec.runtime == RuntimeRole::Python {
+        crate::Store::open(data_dir)?.bind_scope_environment(
+            project_id,
+            &resolved.spec.id,
+            &env_dir.display().to_string(),
+        )?;
+    }
     Ok(DepPlan {
         manager,
         scope_dir,
@@ -345,7 +364,15 @@ pub fn tool_version(program: &Path, args: &[String]) -> Result<String> {
     Ok(text.lines().next().unwrap_or("").trim().to_string())
 }
 
-fn resolve_node_manager(root: &Path, explicit: Option<ManagerKind>) -> Result<ManagerKind> {
+pub(crate) fn resolve_node_manager(
+    root: &Path,
+    explicit: Option<ManagerKind>,
+) -> Result<ManagerKind> {
+    if explicit.is_some_and(|manager| !manager.is_node()) {
+        return Err(Error::InvalidMessage(
+            "manager_conflict: Node scopes require npm or pnpm".into(),
+        ));
+    }
     let package_manager = package_manager_name(root)?;
     let npm_lock =
         root.join("package-lock.json").is_file() || root.join("npm-shrinkwrap.json").is_file();
@@ -396,7 +423,10 @@ fn resolve_node_manager(root: &Path, explicit: Option<ManagerKind>) -> Result<Ma
     Ok(ManagerKind::Pnpm)
 }
 
-fn resolve_python_manager(root: &Path, explicit: Option<ManagerKind>) -> Result<ManagerKind> {
+pub(crate) fn resolve_python_manager(
+    root: &Path,
+    explicit: Option<ManagerKind>,
+) -> Result<ManagerKind> {
     let uv_lock = root.join("uv.lock").is_file();
     match explicit {
         Some(ManagerKind::Pip) if uv_lock => Err(Error::InvalidManifest {
@@ -410,7 +440,7 @@ fn resolve_python_manager(root: &Path, explicit: Option<ManagerKind>) -> Result<
     }
 }
 
-fn package_manager_name(root: &Path) -> Result<Option<ManagerKind>> {
+pub(crate) fn package_manager_name(root: &Path) -> Result<Option<ManagerKind>> {
     let path = root.join("package.json");
     if !path.is_file() {
         return Ok(None);
@@ -581,7 +611,12 @@ fn uv_commands(
             ],
             vec!["sync".to_string()],
         ],
-        DepAction::List => vec![vec!["pip".to_string(), "list".to_string()]],
+        DepAction::List => vec![vec![
+            "pip".to_string(),
+            "list".to_string(),
+            "--python".to_string(),
+            project::venv_python(env_dir).display().to_string(),
+        ]],
     };
     Ok(commands
         .into_iter()
@@ -779,6 +814,7 @@ command = ["python", "serve"]
                 action: DepAction::Install,
                 package: None,
                 scope: ".",
+                scope_id: None,
             },
             Toolchain {
                 node: Some(&node),

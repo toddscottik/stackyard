@@ -82,20 +82,32 @@ pub fn switch_project(data_dir: &Path, project_id: &str, package_id: &str) -> Re
     let previous = store.get_selection(project_id, &package.name)?;
     if package.name == "php" {
         let _ = crate::php::probe_php(Path::new(&package.launch))?;
-        let projects = if project_id == crate::DEFAULT_PROJECT {
-            let mut inherited = Vec::new();
-            for project in store.list_projects()? {
-                if store.get_selection(&project.id, "php")?.is_none() {
-                    inherited.push(project.id);
-                }
+        for project in store.list_projects()? {
+            if project_id != crate::DEFAULT_PROJECT && project.id != project_id {
+                continue;
             }
-            inherited
-        } else {
-            vec![project_id.to_string()]
-        };
-        for project in projects {
-            if let Some(profile) = crate::php::read_php_profile(data_dir, &project)? {
-                crate::php::verify_php_profile(Path::new(&package.launch), &profile)?;
+            if project_id == crate::DEFAULT_PROJECT
+                && store.get_selection(&project.id, "php")?.is_some()
+            {
+                continue;
+            }
+            let manifest = crate::load_manifest(Path::new(&project.root))?;
+            for scope in manifest
+                .scopes
+                .iter()
+                .filter(|s| s.runtime == crate::RuntimeRole::Php)
+            {
+                if store
+                    .get_scope_selection(&project.id, &scope.id, "php")?
+                    .is_some()
+                {
+                    continue;
+                }
+                let key =
+                    crate::scopes::scope_profile_key(&project.id, &scope.id, manifest.schema)?;
+                if let Some(profile) = crate::php::read_php_profile(data_dir, &key)? {
+                    crate::php::verify_php_profile(Path::new(&package.launch), &profile)?;
+                }
             }
         }
     }
