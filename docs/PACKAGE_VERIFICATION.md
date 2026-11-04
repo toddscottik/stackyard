@@ -1,5 +1,13 @@
 # Package and platform verification
 
+## Stage 8A update — 4 November 2026
+
+Windows PHP 8.5.12-1 NTS VS17 x64 and Composer 2.11.1 matched their publisher SHA256 pins and launched. Both now have Windows catalog entries. Managed relocation and real project/profile/Composer/Apache proxy checks are recorded in [S8A-INTEGRATE](evidence/S8A-INTEGRATE.md); exact URLs, digests and CLI/CGI ABI evidence are in [S8A-ARTIFACTS](evidence/S8A-ARTIFACTS.md). No system PHP configuration was modified.
+
+The PHP memcached Windows ZIP has no established publisher digest and remains outside the extension catalog. An unofficial native Windows Memcached 1.6.8 ZIP matched its GitHub publisher asset SHA256 and passed set/get, but failed occupied-port refusal; it is excluded from managed installation. See [S8A-MEMCACHED](evidence/S8A-MEMCACHED.md). An explicit endpoint probe is separate from both installing that server and loading the PHP client.
+
+Prior Mac Node/Python/uv/pnpm payload and launch checks from 3 November are preserved in [S0-MAC-PACKAGES](evidence/S0-MAC-PACKAGES.md). The user confirmed no Mac is currently available. PHP/extensions/Memcached and integrated Mac checks remain pending; this Windows run does not replace them. The following Stage 0 snapshot retains its original dates and statements.
+
 Checked 31 October 2026. Source and metadata research is recorded below. Stage 0 then downloaded and launched the Windows payloads named in the integration section. The Mac was not connected to this execution environment. A Windows launch does not pass the matching macOS artifact. Publisher checksums were compared for the Windows downloads; Authenticode and PGP signatures were not checked.
 
 Additional requirement: [DEPENDENCY_MANAGEMENT.md](DEPENDENCY_MANAGEMENT.md) specifies npm/pnpm/pip/uv and PHP/Composer/extensions. Windows pnpm and pip smoke checks passed in disposable directories. PHP-extension and Memcached native artifact tests remain pending.

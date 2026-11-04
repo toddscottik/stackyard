@@ -572,6 +572,7 @@ fn load_lines(httpd: &Path, module_dir: &Path) -> Result<Vec<(String, String)>> 
     };
     let modules = [
         mpm,
+        ("log_config_module", "mod_log_config.so", "mod_log_config"),
         ("authn_core_module", "mod_authn_core.so", "mod_authn_core"),
         ("authz_core_module", "mod_authz_core.so", "mod_authz_core"),
         ("authz_host_module", "mod_authz_host.so", "mod_authz_host"),
@@ -597,6 +598,8 @@ fn load_lines(httpd: &Path, module_dir: &Path) -> Result<Vec<(String, String)>> 
         ("ssl_module", "mod_ssl.so", "mod_ssl"),
     ];
     let required = [
+        "log_config_module",
+        "mime_module",
         "proxy_module",
         "proxy_http_module",
         "ssl_module",

@@ -22,6 +22,8 @@ Stage 7 checks the bundled catalog for compatible runtime updates and installs t
 
 Stage 8 adds setup steps, a redacted diagnostics report, and the personal-release limits. The Windows 10 and macOS 14.5 acceptance run is still open. See [setup](docs/SETUP.md), [known limitations](docs/KNOWN_LIMITATIONS.md), and `docs/evidence/S8-PERSONAL.md`.
 
+Stage 8A is partial: Windows PHP 8.5.12-1 and Composer 2.11.1 have publisher-checked pins. PHP projects use isolated extension profiles; Composer uses selected PHP and checks platform requirements. CLI/engine/Tauri adapters are available; the dedicated desktop Stack workflow remains Stage 13. See [integration evidence](docs/evidence/S8A-INTEGRATE.md) and the [PHP fixture](fixtures/php-http/README.md). Managed Memcached and its PHP client remain unavailable; the tested Windows server candidate failed occupied-port refusal. Mac PHP/extension execution remains pending.
+
 Development commands, from the repository root:
 
 ```text
@@ -46,8 +48,13 @@ cargo run -p stackyard-cli -- diagnostics
 cargo run -p stackyard-cli -- updates
 cargo run -p stackyard-cli -- cleanup
 cargo run -p stackyard-cli -- deps recover PROJECT
+cargo run -p stackyard-cli -- php status PROJECT
+cargo run -p stackyard-cli -- php profile PROJECT openssl mbstring
+cargo run -p stackyard-cli -- memcached-probe 127.0.0.1 11211
 pnpm --dir apps/desktop install --frozen-lockfile
 pnpm --dir apps/desktop run dev
+pnpm --dir apps/desktop run build
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 The product name is Stackyard. Node projects default to pnpm; an existing npm lockfile stays on npm. The engine state defaults to `%LOCALAPPDATA%\stackyard` on Windows and `~/Library/Application Support/stackyard` on macOS. A previous `%LOCALAPPDATA%\localdev` directory is renamed on first launch. Tests use disposable directories. Rust is installed with rustup during Stage 1; the pinned toolchain is `rust-toolchain.toml`. WebView2 and Visual Studio 2022 C++ tools were already present on the Windows 10 machine. The Mac still needs its own Rust and Xcode Command Line Tools check. A build on a newer macOS runner does not replace testing on macOS 14.5.

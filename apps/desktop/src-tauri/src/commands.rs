@@ -17,6 +17,67 @@ async fn engine_dir() -> Result<PathBuf, String> {
         .map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+pub async fn php_status(
+    project_id: String,
+) -> Result<stackyard_core::php_project::PhpProjectView, String> {
+    match call_within(Command::PhpStatus { project_id }, Duration::from_secs(45)).await? {
+        Outcome::Php { view } => Ok(*view),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
+pub async fn php_apply_profile(
+    project_id: String,
+    extensions: Vec<String>,
+) -> Result<stackyard_core::php_project::PhpProjectView, String> {
+    match call_within(
+        Command::PhpApplyProfile {
+            project_id,
+            extensions,
+        },
+        Duration::from_secs(45),
+    )
+    .await?
+    {
+        Outcome::Php { view } => Ok(*view),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
+pub async fn php_install_extension(
+    project_id: String,
+    catalog_id: String,
+) -> Result<Outcome, String> {
+    call_within(
+        Command::PhpInstallExtension {
+            project_id,
+            catalog_id,
+        },
+        Duration::from_secs(45),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn memcached_probe(
+    address: String,
+    port: u16,
+) -> Result<stackyard_core::memcached::MemcachedProbe, String> {
+    let endpoint = stackyard_core::memcached::MemcachedEndpoint {
+        address: address
+            .parse()
+            .map_err(|_| "Memcached requires a numeric IP address".to_string())?,
+        port,
+    };
+    match call(Command::MemcachedProbe { endpoint }).await? {
+        Outcome::Memcached { probe } => Ok(probe),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
 async fn call(command: Command) -> Result<Outcome, String> {
     call_within(command, Duration::from_secs(5)).await
 }
@@ -268,7 +329,7 @@ fn operation(outcome: Outcome) -> Result<OperationView, String> {
 
 #[tauri::command]
 pub async fn use_existing(role: String, path: String) -> Result<String, String> {
-    match call(Command::UseExisting { role, path }).await? {
+    match call_within(Command::UseExisting { role, path }, Duration::from_secs(45)).await? {
         Outcome::Packages { packages } => Ok(packages
             .first()
             .map(|package| format!("{} {}", package.version, package.path))
@@ -279,10 +340,13 @@ pub async fn use_existing(role: String, path: String) -> Result<String, String> 
 
 #[tauri::command]
 pub async fn select_package(project_id: String, package_id: String) -> Result<(), String> {
-    call(Command::SelectPackage {
-        project_id,
-        package_id,
-    })
+    call_within(
+        Command::SelectPackage {
+            project_id,
+            package_id,
+        },
+        Duration::from_secs(45),
+    )
     .await
     .map(|_| ())
 }

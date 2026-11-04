@@ -171,6 +171,41 @@ async fn dispatch(
         Command::ListPackages => Ok(Outcome::Packages {
             packages: store.list_packages()?,
         }),
+        Command::PhpStatus { project_id } => Ok(Outcome::Php {
+            view: Box::new(stackyard_core::php_project::php_project_view(
+                data_dir, project_id,
+            )?),
+        }),
+        Command::PhpApplyProfile {
+            project_id,
+            extensions,
+        } => Ok(Outcome::Php {
+            view: Box::new(stackyard_core::php_project::apply_project_php_profile(
+                data_dir, project_id, extensions,
+            )?),
+        }),
+        Command::PhpInstallExtension {
+            project_id,
+            catalog_id,
+        } => {
+            let view = stackyard_core::php_project::php_project_view(data_dir, project_id)?;
+            let item = view
+                .available
+                .iter()
+                .find(|item| item.package.id == *catalog_id)
+                .ok_or_else(|| {
+                    Error::InvalidMessage(format!(
+                        "extension {catalog_id} has no approved artifact for this PHP ABI"
+                    ))
+                })?;
+            start_package_install(jobs, data_dir, item.package.clone())
+        }
+        Command::MemcachedProbe { endpoint } => Ok(Outcome::Memcached {
+            probe: stackyard_core::memcached::probe_memcached(
+                *endpoint,
+                std::time::Duration::from_secs(3),
+            )?,
+        }),
         Command::Discover => Ok(Outcome::Discovered {
             items: discover_candidates()
                 .into_iter()
@@ -387,6 +422,17 @@ fn start_install(jobs: &Arc<Jobs>, data_dir: &Path, catalog_id: &str) -> Result<
         return operation_outcome(jobs, &existing);
     }
     let package = find_package(catalog_id)?;
+    start_package_install(jobs, data_dir, package)
+}
+
+fn start_package_install(
+    jobs: &Arc<Jobs>,
+    data_dir: &Path,
+    package: stackyard_core::CatalogPackage,
+) -> Result<Outcome> {
+    if let Some(existing) = jobs.running_for(&package.id) {
+        return operation_outcome(jobs, &existing);
+    }
     mark_install_running(data_dir, &package.id)?;
     let (id, bytes, total, cancel) = jobs.start(package.id.clone());
     let progress = Progress {

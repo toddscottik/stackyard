@@ -215,7 +215,7 @@ pub fn service_launch(
         runtime_path.clone()
     };
     let pnpm = resolve_tool(data_dir, &project.id, "pnpm")?;
-    let (program, args) = rewrite_command(
+    let (program, mut args) = rewrite_command(
         &root,
         &working_directory,
         command,
@@ -237,6 +237,30 @@ pub fn service_launch(
     }
     front.push(working_directory.join("node_modules").join(".bin"));
     let mut env = service.env.clone();
+    if service.runtime == RuntimeRole::Php {
+        if command.first().map(String::as_str) != Some("php") {
+            return Err(Error::InvalidManifest {
+                detail: "PHP services must launch the selected php executable".to_string(),
+            });
+        }
+        for argument in command.iter().skip(1) {
+            if ["-n", "-c", "-d", "--no-php-ini", "--php-ini", "--define"]
+                .iter()
+                .any(|flag| argument == flag || argument.starts_with(&format!("{flag}=")))
+                || argument.starts_with("-c")
+                || argument.starts_with("-d")
+            {
+                return Err(Error::InvalidManifest {
+                    detail: "PHP ini overrides belong in the project's extension profile".into(),
+                });
+            }
+        }
+        let (mut prefix, php_env) =
+            crate::php_project::php_launch_config(data_dir, &project.id, &runtime_path)?;
+        prefix.append(&mut args);
+        args = prefix;
+        env.extend(php_env);
+    }
     env.push(("HOST".to_string(), "127.0.0.1".to_string()));
     env.push(("PORT".to_string(), port.to_string()));
     env.push(("FLASK_RUN_HOST".to_string(), "127.0.0.1".to_string()));
@@ -368,12 +392,15 @@ fn manager_detail(root: &Path, manifest: &Manifest, kind: ManagerKind) -> String
         ManagerKind::Pnpm => "pnpm, the default for a Node project without a lockfile".to_string(),
         ManagerKind::Pip => "pip in this project's virtual environment".to_string(),
         ManagerKind::Uv => "uv because uv.lock is present".to_string(),
+        ManagerKind::Composer => {
+            "Composer with this project's selected PHP and extension profile".to_string()
+        }
     }
 }
 
 fn project_selections(store: &Store, project_id: &str) -> Result<Vec<SelectionView>> {
     let mut found = Vec::new();
-    for role in ["node", "python", "pnpm", "uv"] {
+    for role in ["node", "python", "php", "pnpm", "uv", "composer"] {
         let Some(package_id) = store
             .get_selection(project_id, role)?
             .or(store.get_selection(DEFAULT_PROJECT, role)?)
@@ -426,7 +453,9 @@ fn rewrite_command(
     let mut args: Vec<String> = command
         .iter()
         .map(|arg| {
-            if arg == "{port}" {
+            if arg == "127.0.0.1:{port}" {
+                format!("127.0.0.1:{port}")
+            } else if arg == "{port}" {
                 port.to_string()
             } else {
                 arg.clone()
@@ -436,6 +465,7 @@ fn rewrite_command(
     let program_name = args.remove(0);
     match program_name.as_str() {
         "node" => Ok((node.to_path_buf(), args)),
+        "php" => Ok((node.to_path_buf(), args)),
         "python" | "python3" => Ok((python.to_path_buf(), args)),
         "npm" => {
             let (program, prefix) = npm_launch(node)?;

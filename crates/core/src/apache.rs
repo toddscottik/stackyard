@@ -292,6 +292,10 @@ pub fn render_httpd(spec: &HttpdSpec) -> Result<String> {
     lines.push("ServerTokens Prod".to_string());
     lines.push("ServerSignature Off".to_string());
     lines.push(format!("ServerRoot {}", quote(&spec.server_root)?));
+    for (name, file) in &spec.modules {
+        let path = spec.module_dir.join(file);
+        lines.push(format!("LoadModule {name} {}", quote(&path)?));
+    }
     lines.push(format!("Listen 127.0.0.1:{}", spec.ports.http));
     lines.push(format!("Listen 127.0.0.1:{}", spec.ports.https));
     lines.push(format!("ServerName 127.0.0.1:{}", spec.ports.http));
@@ -311,7 +315,11 @@ pub fn render_httpd(spec: &HttpdSpec) -> Result<String> {
     lines.push("LogLevel info".to_string());
     let mutex = spec.log_dir.to_string_lossy().replace('\\', "/");
     if !mutex.contains(' ') && !mutex.contains('"') {
-        lines.push(format!("Mutex file:{mutex} default"));
+        if cfg!(windows) {
+            lines.push("Mutex default".to_string());
+        } else {
+            lines.push(format!("Mutex file:{mutex} default"));
+        }
     }
     lines.push("LogFormat \"%h %l %u %t \\\"%r\\\" %>s %b\" common".to_string());
     lines.push(format!(
@@ -323,10 +331,6 @@ pub fn render_httpd(spec: &HttpdSpec) -> Result<String> {
     }
     lines.push("AddType text/plain .txt".to_string());
     lines.push("AddType text/html .html".to_string());
-    for (name, file) in &spec.modules {
-        let path = spec.module_dir.join(file);
-        lines.push(format!("LoadModule {name} {}", quote(&path)?));
-    }
     lines.push("SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1".to_string());
     lines.push("ProxyRequests Off".to_string());
     lines.push("<Directory />".to_string());
@@ -690,6 +694,11 @@ mod tests {
             ],
         };
         let text = render_httpd(&spec).unwrap();
+        assert!(text.find("LoadModule proxy_module").unwrap() < text.find("LogFormat").unwrap());
+        if cfg!(windows) {
+            assert!(text.contains("Mutex default"));
+            assert!(!text.contains("Mutex file:"));
+        }
         let a = text.find("ServerName a.localhost").unwrap();
         let b = text.find("ServerName b.localhost").unwrap();
         let a_block = &text[a..b];

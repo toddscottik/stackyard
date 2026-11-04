@@ -1,5 +1,5 @@
 {
-  "revision": 1,
+  "revision": 2,
   "note": "Runnable catalog. Windows payloads matched publisher digests on 31 October 2026. macOS arm64 Node, CPython, uv, and pnpm matched publisher digests and launched on macOS 14.5 on 3 November 2026. Apache, MySQL, and PostgreSQL stay out on macOS.",
   "news": [
     {
@@ -20,7 +20,9 @@
       "sha256": "ca1bff5d8ead13c9f2ea404a176db46bd430704d5b5113734049fa365e7799e2",
       "digest_source": "https://nodejs.org/dist/v24.22.2/SHASUMS256.txt",
       "launch": "node-v24.22.2-win-x64/node.exe",
-      "version_args": ["-v"]
+      "version_args": [
+        "-v"
+      ]
     },
     {
       "id": "cpython-3.12.16-windows-x64",
@@ -33,7 +35,10 @@
       "sha256": "1f2ab53880fc67ea323398c6388e05af28addc99a8e389209f08a51fdff4b149",
       "digest_source": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/SHA256SUMS",
       "launch": "python/python.exe",
-      "version_args": ["-c", "import sys; print(sys.version.split()[0])"]
+      "version_args": [
+        "-c",
+        "import sys; print(sys.version.split()[0])"
+      ]
     },
     {
       "id": "uv-0.13.6-windows-x64",
@@ -46,7 +51,9 @@
       "sha256": "a2a8820d5eea32f08ef467ef3b7f66883a9b076d5737a2fc2fbb5f458d1bb50f",
       "digest_source": "https://github.com/astral-sh/uv/releases/download/0.13.6/sha256.sum",
       "launch": "uv.exe",
-      "version_args": ["--version"]
+      "version_args": [
+        "--version"
+      ]
     },
     {
       "id": "pnpm-12.16.1-windows-x64",
@@ -59,7 +66,9 @@
       "sha256": "253cd5caa8cdf3859a92995bdf1819d3b433690157616cc372af00d22eb0c6a4",
       "digest_source": "https://api.github.com/repos/pnpm/pnpm/releases/tags/v12.16.1",
       "launch": "pnpm.exe",
-      "version_args": ["--version"]
+      "version_args": [
+        "--version"
+      ]
     },
     {
       "id": "node-24.22.2-macos-arm64",
@@ -72,7 +81,9 @@
       "sha256": "aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a",
       "digest_source": "https://nodejs.org/dist/v24.22.2/SHASUMS256.txt",
       "launch": "node-v24.22.2-darwin-arm64/bin/node",
-      "version_args": ["-v"]
+      "version_args": [
+        "-v"
+      ]
     },
     {
       "id": "cpython-3.12.16-macos-arm64",
@@ -85,7 +96,10 @@
       "sha256": "353d5f1b4fd2715e7053f12f068435d5bbad16b91e057006b5d01e0925709a7e",
       "digest_source": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/SHA256SUMS",
       "launch": "python/bin/python3",
-      "version_args": ["-c", "import sys; print(sys.version.split()[0])"]
+      "version_args": [
+        "-c",
+        "import sys; print(sys.version.split()[0])"
+      ]
     },
     {
       "id": "uv-0.13.6-macos-arm64",
@@ -98,7 +112,9 @@
       "sha256": "60fbd5c8a1ed681845eea28d9d622fcde03c51e91a43465b64a1e17db1ed3472",
       "digest_source": "https://github.com/astral-sh/uv/releases/download/0.13.6/uv-aarch64-apple-darwin.tar.gz.sha256",
       "launch": "uv-aarch64-apple-darwin/uv",
-      "version_args": ["--version"]
+      "version_args": [
+        "--version"
+      ]
     },
     {
       "id": "pnpm-12.16.1-macos-arm64",
@@ -111,7 +127,9 @@
       "sha256": "6661212a6ec725634b0d3268e5bc9408e3152506dab5997891e38fa1ef22bf9c",
       "digest_source": "https://api.github.com/repos/pnpm/pnpm/releases/tags/v12.16.1",
       "launch": "pnpm",
-      "version_args": ["--version"]
+      "version_args": [
+        "--version"
+      ]
     },
     {
       "id": "apache-2.4.69-windows-x64",
@@ -124,7 +142,9 @@
       "sha256": "77d715d0d9cee731e2251e7ddc2090a7a8e6d41fedef2e9827cd918593c5a652",
       "digest_source": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip.txt",
       "launch": "Apache24/bin/httpd.exe",
-      "version_args": ["-v"]
+      "version_args": [
+        "-v"
+      ]
     },
     {
       "id": "postgres-18.6-windows-x64",
@@ -137,7 +157,9 @@
       "sha256": "e2246ba91d22345bc3d017586c09ede52d9df180b1eeb480f050445f1cad84e2",
       "digest_source": "https://get.enterprisedb.com/postgresql/postgresql-18.6-5-windows-x64-binaries.zip.sha256",
       "launch": "pgsql/bin/postgres.exe",
-      "version_args": ["--version"]
+      "version_args": [
+        "--version"
+      ]
     },
     {
       "id": "mysql-8.4.13-windows-x64",
@@ -150,7 +172,41 @@
       "md5": "7b94489d5524dea9b27097068bea25a8",
       "digest_source": "https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.13-winx64.zip.md5",
       "launch": "mysql-8.4.13-winx64/bin/mysqld.exe",
-      "version_args": ["--no-defaults", "--version"]
+      "version_args": [
+        "--no-defaults",
+        "--version"
+      ]
+    },
+    {
+      "id": "php-8.5.12-1-windows-x64",
+      "kind": "runtime",
+      "name": "php",
+      "version": "8.5.12-1",
+      "target": "windows-x64",
+      "format": "zip",
+      "url": "https://downloads.php.net/~windows/releases/archives/php-8.5.12-1-nts-Win32-vs17-x64.zip",
+      "sha256": "2a36a2edcb7a5b9252f638fd5e4cf84d7f6e066092654220dc0b63e5cf4e9723",
+      "digest_source": "https://www.php.net/downloads.php?os=windows",
+      "launch": "php.exe",
+      "version_args": [
+        "-n",
+        "-v"
+      ]
+    },
+    {
+      "id": "composer-2.11.1-windows-x64",
+      "kind": "tool",
+      "name": "composer",
+      "version": "2.11.1",
+      "target": "windows-x64",
+      "format": "phar",
+      "url": "https://getcomposer.org/download/2.11.1/composer.phar",
+      "sha256": "6f1b891e1d4927d62740276c540fb490e47689e19e102c49e8da849794882f8c",
+      "digest_source": "https://getcomposer.org/download/2.11.1/composer.phar.sha256sum",
+      "launch": "composer.phar",
+      "version_args": [
+        "--version"
+      ]
     }
   ]
 }

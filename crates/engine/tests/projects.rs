@@ -757,6 +757,20 @@ fn node_with_npm() -> Option<PathBuf> {
     None
 }
 
+#[test]
+fn fixture_pip_version_does_not_install_into_the_working_directory() {
+    let root = temp_dir();
+    let output = Command::new(fixture())
+        .args(["-m", "pip", "--version"])
+        .current_dir(&root)
+        .output()
+        .expect("fixture pip version");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "pip 1.0.0");
+    assert!(!root.join("pip-installed").exists());
+    fs::remove_dir_all(root).expect("remove version fixture");
+}
+
 #[tokio::test]
 async fn npm_and_pip_keep_project_environments_separate() {
     let Some(node) = node_with_npm() else {
@@ -792,6 +806,9 @@ async fn npm_and_pip_keep_project_environments_separate() {
         r#"{"name":"stackyard-node-http","private":true,"dependencies":{"stackyard-hello":"file:vendor/hello"}}"#,
     )
     .expect("package");
+    // Pack this local dependency instead of requiring Windows symlink privilege.
+    // Keep the npm policy private to this disposable project.
+    fs::write(root.join(".npmrc"), "install-links=true\n").expect("npm copy install policy");
     fs::write(
         root.join("server.js"),
         "require('http').createServer((req, res) => res.end('node')).listen(process.env.PORT, '127.0.0.1');\n",
@@ -825,6 +842,12 @@ ready_timeout_secs = 8
     let message = wait_task(&engine.dir, install).await;
     assert!(message.contains("manager: npm"), "{message}");
     assert!(root.join("node_modules/stackyard-hello").exists());
+    assert!(
+        !fs::symlink_metadata(root.join("node_modules/stackyard-hello"))
+            .expect("installed package metadata")
+            .file_type()
+            .is_symlink()
+    );
 
     let Some(python) = python else {
         return;

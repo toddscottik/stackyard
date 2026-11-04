@@ -46,7 +46,11 @@ pub fn run() {
             commands::list_updates,
             commands::cleanup_unused,
             commands::export_diagnostics,
-            commands::discover_runtimes
+            commands::discover_runtimes,
+            commands::php_status,
+            commands::php_apply_profile,
+            commands::php_install_extension,
+            commands::memcached_probe
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Show Stackyard", true, None::<&str>)?;

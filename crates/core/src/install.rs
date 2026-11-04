@@ -200,7 +200,7 @@ pub fn download_and_install(
 pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<PackageRecord> {
     if !matches!(
         role,
-        "node" | "python" | "pnpm" | "uv" | "apache" | "mysql" | "postgres"
+        "node" | "python" | "php" | "composer" | "pnpm" | "uv" | "apache" | "mysql" | "postgres"
     ) {
         return Err(Error::InvalidMessage(format!(
             "existing selection for {role} is not supported"
@@ -224,16 +224,32 @@ pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<
         "postgres" => vec!["--version".to_string()],
         _ => vec!["--version".to_string()],
     };
-    let probed = command_line(executable, &args)?;
+    let probed = if role == "php" {
+        crate::php::probe_php(executable)?.version
+    } else if role == "composer" {
+        if executable.extension().and_then(|ext| ext.to_str()) != Some("phar") {
+            return Err(Error::InvalidMessage(
+                "reference composer.phar so the selected PHP runs Composer".to_string(),
+            ));
+        }
+        let php = crate::project::resolve_runtime(
+            data_dir,
+            DEFAULT_PROJECT,
+            crate::manifest::RuntimeRole::Php,
+        )?;
+        crate::php_project::probe_composer(Path::new(&php.launch), executable)?
+    } else {
+        command_line(executable, &args)?
+    };
     let version = if role == "apache" {
         crate::apache::parse_apache_version(&probed).ok_or_else(|| Error::ProbeFailed {
             path: executable.to_path_buf(),
             detail: format!("could not read an Apache version from {probed:?}"),
         })?
-    } else if role == "uv" {
+    } else if role == "uv" || role == "composer" {
         probed
             .split_whitespace()
-            .nth(1)
+            .nth(if role == "composer" { 2 } else { 1 })
             .unwrap_or(probed.as_str())
             .to_string()
     } else {
@@ -251,7 +267,7 @@ pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<
     }
     let kind = if role == "apache" || role == "mysql" || role == "postgres" {
         "server"
-    } else if role == "node" || role == "python" {
+    } else if role == "node" || role == "python" || role == "php" {
         "runtime"
     } else {
         "tool"
@@ -269,7 +285,14 @@ pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<
         removable: false,
     };
     store.insert_package(&record)?;
-    store.select_package(DEFAULT_PROJECT, role, &id)?;
+    if role == "php" {
+        if let Err(error) = crate::updates::switch_project(data_dir, DEFAULT_PROJECT, &id) {
+            store.delete_package(&id)?;
+            return Err(error);
+        }
+    } else {
+        store.select_package(DEFAULT_PROJECT, role, &id)?;
+    }
     Ok(record)
 }
 
@@ -296,6 +319,24 @@ pub fn remove_package(data_dir: &Path, id: &str) -> Result<()> {
         });
     }
     let path = PathBuf::from(&package.path);
+    for project in store.list_projects()? {
+        if let Some(profile) = crate::php::read_php_profile(data_dir, &project.id)? {
+            if profile.executable.starts_with(&path)
+                || profile
+                    .extensions
+                    .iter()
+                    .any(|extension| extension.root.starts_with(&path))
+            {
+                return Err(Error::NotRemovable {
+                    id: id.to_string(),
+                    reason: format!(
+                        "PHP profile for {} still references this package",
+                        project.id
+                    ),
+                });
+            }
+        }
+    }
     let packages = data_dir.join("packages");
     let tools = data_dir.join("tools");
     if !path.starts_with(&packages) && !path.starts_with(&tools) {
@@ -336,6 +377,7 @@ pub fn discover_candidates() -> Vec<(String, PathBuf)> {
             r"D:\XAMPP",
             r"D:\_work\XAMPP",
         ] {
+            push_file(&mut found, "php", PathBuf::from(root).join(r"php\php.exe"));
             push_file(
                 &mut found,
                 "mysql",

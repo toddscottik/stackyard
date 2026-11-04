@@ -27,8 +27,8 @@ Stage 8A is next. Stages 0–8 remain the implemented baseline; their pending ta
 
 | ID | Status / owner | Bounded scope | Dependency |
 | --- | --- | --- | --- |
-| S8A-PHP | Next / unassigned | PHP, Composer, extension profiles/downloads, Apache integration and Memcached | Existing provider infrastructure and artifact feasibility |
-| S9-CONTRACTS | Waiting / unassigned | Define project scopes and launch contracts; execute tasks 9.1–9.4 and its acceptance checks | Stage 8A implementation and existing Stages 0–8. |
+| S8A-PHP | Review (partial) / coordinator | Windows PHP/Composer and profile/Apache proxy slice implemented; native Memcached client/server, FastCGI and automatic worker-only restart remain open | See S8A-INTEGRATE evidence; no Mac available; missing or failed native artifacts stay unavailable |
+| S9-CONTRACTS | Preparatory audit / coordinator | 9.1 proposal in decisions/0008-project-scopes.md; 9.2–9.4 not implemented | Review/freeze contracts against 8A; retain its artifact/platform gates |
 | S10-DESKTOP | Waiting / unassigned | Build the shared desktop workspace and activity layer; execute tasks 10.1–10.4 and its acceptance checks | Stage 9 contracts. |
 | S11-CREATE | Waiting / unassigned | Create runnable projects from the desktop; execute tasks 11.1–11.4 and its acceptance checks | Stages 9–10 and approved runtime/tool artifacts. |
 | S12-IMPORT | Waiting / unassigned | Import applications and edit their configuration; execute tasks 12.1–12.4 and its acceptance checks | Stages 9–11. |
@@ -42,3 +42,14 @@ Stage 8A is next. Stages 0–8 remain the implemented baseline; their pending ta
 A stage is a sequence of small assignments, not one instruction to implement everything concurrently. Before dispatch, choose one numbered task and assign exact writable paths, inputs, output examples, checks, evidence and a handoff under AGENT_WORKFLOW.md. Coordinator owns schema/protocol/lockfiles/status; no workers are assigned here.
 
 After Stage 9 contracts, independent owners can prepare recipe content, desktop resource infrastructure and platform package checks. Dependency order still governs integration. Stages 13–15 may overlap after their declared dependencies, using disjoint files; shared App.tsx/protocol edits must have one owner.
+
+## Stage 8A assignments — 4 November 2026
+
+| Slice | Owner | Exclusive writable paths | Acceptance |
+| --- | --- | --- | --- |
+| S8A-ARTIFACTS | Reviewed / artifact worker | scripts/verification/windows/php.ps1; docs/evidence/S8A-ARTIFACTS.md | PHP/Composer publisher digests and CLI/CGI launches passed; memcached integrity blocked, Mac pending |
+| S8A-PROFILES | Reviewed / profile worker | crates/core/src/php.rs; crates/engine/tests/php.rs; docs/evidence/S8A-PROFILES.md | Native ABI/profile rollback/isolation and PHP/Composer/Apache HTTP+HTTPS integration passed on Windows |
+| S8A-MEMCACHED | Reviewed, managed blocked / cache worker | crates/core/src/memcached.rs; scripts/verification/windows/memcached.ps1; docs/evidence/S8A-MEMCACHED.md | Seven protocol tests passed; native Windows candidate failed occupied-port refusal and was cleaned up/excluded |
+| S8A-WINDOWS-REGRESSIONS | Reviewed / artifact worker | crates/engine/tests/projects.rs; crates/engine/src/bin/fixture.rs; crates/core/src/client.rs; crates/engine/tests/cli_startup.rs; docs/evidence/S8A-WINDOWS-REGRESSIONS.md | Copied npm fixture/read-only pip version fixes passed; deterministic autostart baseline failure now passes with no inherited pipe handles; real CLI workflow passed |
+| S9.1-AUDIT | Proposed / cache worker | docs/decisions/0008-project-scopes.md | Source audit and JSON/TOML examples checked; no schema migration or runtime acceptance claimed |
+| S8A-INTEGRATE | coordinator | Shared models/protocol/store/engine/CLI/catalog/manifests/status and integration fixtures | Review workers; wire PHP/Composer/profiles; validate combined behavior and retain target gaps |

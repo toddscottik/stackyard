@@ -21,6 +21,7 @@ pub struct PlannedCommand {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+    pub env_remove: Vec<String>,
     pub working_directory: PathBuf,
 }
 
@@ -39,6 +40,8 @@ pub struct Toolchain<'a> {
     pub pnpm: Option<&'a Path>,
     pub uv: Option<&'a Path>,
     pub venv_python: Option<&'a Path>,
+    pub php: Option<&'a Path>,
+    pub composer: Option<&'a Path>,
 }
 
 pub fn resolve_manager(root: &Path, manifest: &Manifest) -> Result<ManagerKind> {
@@ -50,6 +53,11 @@ pub fn resolve_manager(root: &Path, manifest: &Manifest) -> Result<ManagerKind> 
         });
     }
     if let Some(manager) = manifest.manager {
+        if manager == ManagerKind::Composer && !runtimes.contains(&RuntimeRole::Php) {
+            return Err(Error::InvalidManifest {
+                detail: "Composer needs a PHP service".to_string(),
+            });
+        }
         if manager.is_node() && !runtimes.contains(&RuntimeRole::Node) {
             return Err(Error::InvalidManifest {
                 detail: format!(
@@ -66,6 +74,9 @@ pub fn resolve_manager(root: &Path, manifest: &Manifest) -> Result<ManagerKind> 
                 ),
             });
         }
+    }
+    if runtimes.len() == 1 && runtimes.contains(&RuntimeRole::Php) {
+        return Ok(ManagerKind::Composer);
     }
     if runtimes.contains(&RuntimeRole::Node)
         && (manifest.manager.is_none() || manifest.manager.is_some_and(ManagerKind::is_node))
@@ -174,6 +185,17 @@ pub fn plan_dependency(
                 package,
             )?
         }
+        ManagerKind::Composer => {
+            let php = toolchain.php.ok_or_else(|| {
+                Error::InvalidMessage("select a PHP runtime before running Composer".to_string())
+            })?;
+            let composer = toolchain.composer.ok_or_else(|| {
+                Error::InvalidMessage("select a Composer phar before running Composer".to_string())
+            })?;
+            composer_commands(
+                data_dir, project_id, php, composer, action, package, &scope_dir,
+            )?
+        }
     };
     Ok(DepPlan {
         manager,
@@ -187,6 +209,7 @@ pub fn scope_dir(root: &Path, scope: &str) -> Result<PathBuf> {
     if scope.is_empty() || scope == "." {
         return root
             .canonicalize()
+            .map(crate::paths::plain_path)
             .map_err(|source| Error::io("open project directory", source));
     }
     let relative = Path::new(scope);
@@ -214,6 +237,8 @@ pub fn manifest_fingerprint(dir: &Path) -> String {
         "requirements.txt",
         "pyproject.toml",
         "uv.lock",
+        "composer.json",
+        "composer.lock",
     ] {
         hasher.update(name.as_bytes());
         match fs::read(dir.join(name)) {
@@ -225,6 +250,84 @@ pub fn manifest_fingerprint(dir: &Path) -> String {
         }
     }
     hex::encode(hasher.finalize())
+}
+
+fn composer_commands(
+    data_dir: &Path,
+    project_id: &str,
+    php: &Path,
+    composer: &Path,
+    action: DepAction,
+    package: Option<&str>,
+    dir: &Path,
+) -> Result<Vec<PlannedCommand>> {
+    if !dir.join("composer.json").is_file() {
+        return Err(Error::InvalidManifest {
+            detail: "Composer scope needs composer.json".to_string(),
+        });
+    }
+    if composer.extension().and_then(|ext| ext.to_str()) != Some("phar") {
+        return Err(Error::InvalidMessage(
+            "select composer.phar; Stackyard runs it with the selected PHP".to_string(),
+        ));
+    }
+    let (prefix, mut env) = crate::php_project::php_launch_config(data_dir, project_id, php)?;
+    env.extend([
+        (
+            "COMPOSER".into(),
+            dir.join("composer.json").display().to_string(),
+        ),
+        (
+            "COMPOSER_HOME".into(),
+            data_dir
+                .join("php")
+                .join("composer")
+                .join(project_id)
+                .join("home")
+                .display()
+                .to_string(),
+        ),
+        (
+            "COMPOSER_CACHE_DIR".into(),
+            data_dir
+                .join("php")
+                .join("composer")
+                .join(project_id)
+                .join("cache")
+                .display()
+                .to_string(),
+        ),
+    ]);
+    let mut args = prefix;
+    args.push(composer.display().to_string());
+    args.extend(["--no-interaction".to_string(), "--no-ansi".to_string()]);
+    let base = args.clone();
+    match action {
+        DepAction::Install => args.push("install".to_string()),
+        DepAction::Add => args.extend(["require".to_string(), package.unwrap().to_string()]),
+        DepAction::Remove => args.extend(["remove".to_string(), package.unwrap().to_string()]),
+        DepAction::Update => args.extend(["update".to_string(), package.unwrap().to_string()]),
+        DepAction::List => args.extend(["show".to_string(), "--format=json".to_string()]),
+    }
+    let mut commands = vec![PlannedCommand {
+        program: php.to_path_buf(),
+        args,
+        env: env.clone(),
+        env_remove: vec!["COMPOSER_VENDOR_DIR".into(), "COMPOSER_BIN_DIR".into()],
+        working_directory: dir.to_path_buf(),
+    }];
+    if action != DepAction::List {
+        let mut args = base;
+        args.push("check-platform-reqs".to_string());
+        commands.push(PlannedCommand {
+            program: php.to_path_buf(),
+            args,
+            env,
+            env_remove: vec!["COMPOSER_VENDOR_DIR".into(), "COMPOSER_BIN_DIR".into()],
+            working_directory: dir.to_path_buf(),
+        });
+    }
+    Ok(commands)
 }
 
 pub fn tool_version(program: &Path, args: &[String]) -> Result<String> {
@@ -493,6 +596,7 @@ fn planned(
     env: &[(String, String)],
 ) -> PlannedCommand {
     PlannedCommand {
+        env_remove: Vec::new(),
         program,
         args,
         env: env.to_vec(),
@@ -624,7 +728,7 @@ command = ["python", "serve"]
         let web = root.join("packages/web");
         fs::create_dir_all(&web).unwrap();
         let resolved = scope_dir(&root, "packages/web").unwrap();
-        assert_eq!(resolved, web.canonicalize().unwrap());
+        assert_eq!(resolved, crate::plain_path(web.canonicalize().unwrap()));
         assert!(scope_dir(&root, "../outside").is_err());
         assert!(validate_package_name("-rf").is_err());
         assert!(validate_package_name("@scope/name").is_ok());
@@ -682,6 +786,8 @@ command = ["python", "serve"]
                 pnpm: None,
                 uv: None,
                 venv_python: None,
+                php: None,
+                composer: None,
             },
         )
         .unwrap();

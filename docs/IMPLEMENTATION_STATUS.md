@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 4 November 2026 (planning; existing execution evidence retains its dates).
+Updated: 4 November 2026 (Stage 8A Windows implementation and evidence; historical execution retains its dates).
 
 ## Completed preparation
 
@@ -17,17 +17,17 @@ Updated: 4 November 2026 (planning; existing execution evidence retains its date
 
 | Stage | Status | Next concrete work |
 | --- | --- | --- |
-| 0: package feasibility | Partial. Windows runtime and server probes accepted 31 October 2026. Mac metadata is recorded and every Mac launch is pending or blocked | Run `scripts/verification/macos/packages.sh` on the M1 Pro. Resolve macOS Apache and MySQL archives before approving those providers |
+| 0: package feasibility | Partial. Windows probes accepted 31 October. Mac Node/Python/uv/pnpm payload and native launch evidence recorded 3 November in S0-MAC-PACKAGES | Resolve Mac server artifacts; preserve the accepted runtime pins. No Mac is available in the current session |
 | 1: foundation | Partial. Windows skeleton runs as of 1 November 2026. Mac toolchain and desktop open are pending | Finish the Mac toolchain check and open the desktop there. Then Stage 2 package providers |
-| 2: packages | Partial. Windows Node, Python, uv, and pnpm can be installed or referenced as of 1 November 2026. macOS packages are not in the catalog | Run the same install and selection flow on the M1 Pro after the Mac catalog pins are payload-checked |
+| 2: packages | Partial. Windows packages supported; Mac Node/Python/uv/pnpm entered the catalog after 3 November payload/launch checks | Complete Mac desktop selection/relocation/cleanup checks; basic payload launches do not prove the full workflow |
 | 3: project runner | Partial. Linux x86_64 process and dependency checks passed on 1 November 2026. Windows 10 and macOS 14.5 launches are pending | Run the same project and dependency flows on Windows 10 x64 and the M1 Pro |
 | 4: desktop workflows | Partial. Desktop screens and tray policy are implemented as of 1 November 2026. A live window was not opened on Windows 10 or macOS 14.5 | Open the desktop on those machines and run one project through import, install, start, logs, restart, and stop |
 | 5: Apache/HTTPS | Partial. Linux x86_64 shared Apache, proxy, static rewrite, and generated HTTPS passed on 1 November 2026. Windows catalog pin is the Stage 0 zip and was not launched again. macOS Apache remains blocked | Launch the Windows catalog Apache on Windows 10. Keep macOS blocked until a relocatable arm64 archive exists. System trust and ports 80/443 stay pending |
 | 6: databases | Partial. Linux x86_64 MySQL 8.0.46, PostgreSQL 16.15, and SQLite 3.45.1 passed on 1 November 2026. Windows catalog PostgreSQL was not launched again. MySQL has no SHA256 catalog entry. macOS database archives stay blocked | Launch the Windows catalog PostgreSQL on Windows 10. Leave MySQL out of the catalog until a SHA256 exists. Leave macOS blocked until an approved archive exists. Credential Manager and Keychain remain pending |
 | 7: updates/recovery | Partial. Linux x86_64 notice, switch, cleanup, and interrupted-install checks passed on 1 November 2026. No second digest-checked Node or Python pin was downloaded | Download a newer checked Node or Python pin on Windows 10 and switch one project there. Leave macOS pins out until a payload check |
 | 8: personal release | Partial. Linux x86_64 diagnostics, setup notes, and fixture smoke passed on 1 November 2026. Windows 10 and macOS 14.5 acceptance, the user's projects, and sleep/wake are open | Run the acceptance list on Windows 10 x64 and the M1 Pro running macOS 14.5. Measure startup there with an editor and browser. Do not treat the Linux sample as that gate |
-| 8A: PHP/extensions | Not started | PHP/Composer, native extension profiles, Memcached server/client feasibility and integration |
-| 9: Define project scopes and launch contracts | Not started | A shared engine/CLI contract that represents Node, Python, and PHP projects without one project-wide package manager controlling every service. |
+| 8A: PHP/extensions | Partial. Windows PHP/Composer installation/reference, project ini profiles and dependency/lifecycle integration implemented. Detailed checks: S8A-INTEGRATE | Verified memcached client artifact/build, safe managed server, Apache FastCGI/document-root and worker-only restart; Mac execution pending |
+| 9: Define project scopes and launch contracts | Preparatory 9.1 audit drafted in decisions/0008-project-scopes.md; schema/API proposal not implemented | Review/freeze examples, then implement 9.2–9.4 against the current PHP contracts. Do not count the audit as Stage 9 acceptance |
 | 10: Build the shared desktop workspace and activity layer | Not started | A maintainable desktop shell that preserves existing actions and can host the new workflows. |
 | 11: Create runnable projects from the desktop | Not started | Create project produces working source and a runnable application for Node HTTP, Next.js, Flask, and FastAPI. |
 | 12: Import applications and edit their configuration | Not started | Existing applications can be added without hand-writing stackyard.toml, and their configuration can be changed safely afterward. |
@@ -41,12 +41,12 @@ Updated: 4 November 2026 (planning; existing execution evidence retains its date
 ## Open evidence gaps
 
 - Windows Apache, MySQL, and PostgreSQL launches are accepted with two integrity limits: MySQL 8.4.13 was checked with the publisher MD5 sidecar because no SHA256 sidecar was published, and PostgreSQL 18.6 ran on Windows 10 even though the upstream table names Windows Server. Details: `docs/evidence/S0-WIN-SERVERS.md`.
-- No execution on the Mac yet. User has confirmed testing availability. S0-MAC-PACKAGES re-fetched metadata from Windows on 31 October 2026 and left every launch check pending.
+- Mac runtime payload/launch evidence exists from 3 November in `docs/evidence/S0-MAC-PACKAGES.md`. This session has no Mac access (user confirmed 4 November). Integrated desktop/server/PHP checks remain pending.
 - No approved standalone Apache package for macOS 14.5 arm64. The Mac research found source and Windows binaries only, and no Homebrew Sonoma bottle. A relocatable arm64 archive is still a packaging gate.
 - No selected/approved MySQL package for macOS 14.5 arm64. The downloads selector was not completed, so no archive URL is recorded.
 - PostgreSQL on macOS: `postgresql-18.6-5-osx-binaries.zip` was observed with no published digest and no arm64 marker in the filename. The Windows x64 18.6 zip did launch on this machine.
-- Rust 1.99.1 is installed with rustup on this Windows machine. WebView2 runtime 156.0.4314.50 and Visual Studio 2022 Community C++ tools were already present. The Mac Rust toolchain and Xcode Command Line Tools are still unchecked. Managed uv 0.13.6 remains an artifact-directory helper, not a system-shell install.
-- Windows pnpm 12.16.1 and pip (`six==1.17.0` in a disposable venv) smoke checks passed. PHP extension and Memcached native artifacts remain unverified. macOS pnpm/pip execution remains pending.
+- Rust 1.99.1 is installed with rustup on this Windows machine. WebView2 runtime 156.0.4314.50 and Visual Studio 2022 Community C++ tools were already present. Mac Rust 1.99.1 is recorded in the 3 November package evidence; Xcode Command Line Tools and desktop build/open acceptance remain pending. Managed uv 0.13.6 remains an artifact-directory helper, not a system-shell install.
+- Windows PHP 8.5.12 and Composer 2.11.1 publisher SHA256 checks and native launches passed on 4 November. Bundled extensions load in isolated CLI/CGI profiles; full project checks are in S8A-INTEGRATE. PHP memcached lacks an approved publisher digest. An unofficial Windows Memcached 1.6.8 server failed occupied-port refusal and is excluded from the catalog. Mac pnpm and disposable pip launch evidence is recorded in S0-MAC-PACKAGES; full project acceptance remains pending.
 
 ## Handoff format for future work
 
@@ -172,3 +172,17 @@ Next task: run this acceptance list on Windows 10 x64 and the M1 Pro running mac
 ## Planning clarification — 4 November 2026
 
 Stages 0–8 remain the implemented baseline; pending target acceptance is tracked separately. Stage 8A remains next. The former broad Stage 9 is split into Stages 9–17 with numbered tasks and acceptance in DEVELOPMENT_PLAN.md; public release is now Stage 18 and requires Stage 17 acceptance. Runnable Node, Next.js, Flask and FastAPI starters are delivered in Stage 11. See UI_REWORK_REVIEW.md and WORK_QUEUE.md. Planning only; no new implementation or runtime acceptance is claimed.
+
+## Stage 8A coordinator handoff — 4 November 2026
+
+Target: Windows 10 Pro build 19045 x64, Rust 1.99.1, PHP 8.5.12 NTS VS17, Composer 2.11.1, Apache Lounge 2.4.69 VS18, Windows curl 8.13.0. Three disjoint workers handled approved artifacts, profile services/native acceptance, and Memcached feasibility; the coordinator reviewed and integrated shared interfaces. The artifact worker also corrected Windows fixture/startup regressions. No Mac is available now (user confirmed); earlier Mac runtime evidence is retained.
+
+Changed areas: core PHP/extension/Memcached modules; manifest, package/dependency/selection and archive adapters; engine routing/environment handling/Apache config; CLI and Tauri invokes; Windows probes; PHP HTTP fixture and lockfile; integration tests and documentation. No root dependencies or lockfile versions changed. Details and exact commands: [S8A-INTEGRATE](evidence/S8A-INTEGRATE.md), [S8A-ARTIFACTS](evidence/S8A-ARTIFACTS.md), [S8A-PROFILES](evidence/S8A-PROFILES.md), [S8A-MEMCACHED](evidence/S8A-MEMCACHED.md), [S8A-WINDOWS-REGRESSIONS](evidence/S8A-WINDOWS-REGRESSIONS.md). Architecture: [0007](decisions/0007-php-profiles.md).
+
+Demonstrated: publisher-digest-checked managed PHP and Composer relocation, existing reference, two isolated CLI/HTTP extension profiles, failed/incompatible load rollback, offline local Composer dependency install/platform checks/lockfile reuse, persistent project data through stop/restart and engine restart, real Apache HTTP and generated-CA HTTPS proxying, busy-port preservation and owned-process cleanup. Fixed Windows Apache mutex/module-order defects and a reproducible engine-autostart inherited-handle hang; captured PowerShell now returns while the same per-user engine stays alive. No trust/hosts/PATH/OS-service changes or user projects/data were used.
+
+Validation: `cargo test --workspace --offline` passed with real PHP/Composer/Apache variables enabled, including 62 core tests, native package/project tests and new captured-client startup regression. `cargo clippy --workspace --all-targets --offline -- -D warnings`, `pnpm --dir apps/desktop run build`, `git diff --check`, JSON/TOML and new relative-document links passed. The full real CLI PHP workflow with automatic engine startup passed in 5.41 seconds. Native Memcached verification intentionally failed occupied-port refusal; its candidate is excluded from the catalog, not counted as passing managed support. Initial intermittent cold/concurrent project-test startup timeouts remain documented; later complete/focused runs passed without weakening lifecycle assertions.
+
+Remaining: verified PHP memcached artifact/build plus safe native managed Memcached and real PHP client set/get; Apache FastCGI/document-root integration; affected-worker-only profile restart; second native PHP patch switch; Mac launches and integrated desktop acceptance. The extension download catalog stays empty until integrity/ABI/native dependency checks pass. Stage 8A is partial and Stages 10–18 remain open.
+
+Next task: finish the missing 8A native provider slice using a verified build/artifact route, then review/freeze the preparatory [9.1 scope contract](decisions/0008-project-scopes.md) and assign 9.2–9.4. The 9.1 audit/examples are a proposal, not implemented scopes or migration acceptance. Do not mark the development plan complete from this handoff.

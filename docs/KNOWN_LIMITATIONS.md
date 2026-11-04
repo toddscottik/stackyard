@@ -1,6 +1,6 @@
 # Known limitations
 
-This is the personal-release list as of 1 November 2026. It is not a claim that the Windows 10 and macOS 14.5 acceptance run has passed.
+Updated 4 November 2026. This is not a claim that the full Windows 10 and macOS 14.5 acceptance run has passed.
 
 ## Acceptance machines
 
@@ -27,4 +27,8 @@ This is the personal-release list as of 1 November 2026. It is not a claim that 
 - `deps recover` reinstalls from the lockfile. It does not roll back package scripts.
 - Passwords are mode `0600` files under the data directory. Windows Credential Manager and macOS Keychain are not wired up.
 - Mailpit is not included.
-- PHP, Composer, extensions, and Memcached are Stage 8A and are not in this build.
+- Windows PHP 8.5.12-1 NTS and Composer 2.11.1 are available. CLI/engine/Tauri contracts support isolated project extension profiles and Composer operations; the dedicated desktop Stack interface is still Stage 13. Profile changes currently require a stopped project.
+- PHP HTTP development services can use the existing Apache proxy; a PHP FastCGI/document-root provider, PHP `.htaccess` acceptance and affected-worker-only restart remain pending.
+- Downloaded PHP extension pins remain unavailable until publisher SHA256 and native dependencies are verified. The Windows memcached client artifact has no established publisher digest. The tested unofficial Memcached 1.6.8 server failed occupied-port refusal and is excluded. An explicit endpoint probe is available; it does not install a server or prove the PHP client.
+- No Mac is available in the current session. PHP/Composer/extensions/Memcached and integrated Mac acceptance remain pending; existing 3 November Node/Python runtime evidence is retained.
+- Windows lifecycle tests initially timed out intermittently in concurrent runs; subsequent focused/full runs passed without a production lifecycle change. The cause is unresolved; see `evidence/S8A-WINDOWS-REGRESSIONS.md`.

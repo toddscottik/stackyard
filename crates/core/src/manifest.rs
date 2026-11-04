@@ -12,6 +12,7 @@ pub enum ManagerKind {
     Pnpm,
     Pip,
     Uv,
+    Composer,
 }
 
 impl ManagerKind {
@@ -21,6 +22,7 @@ impl ManagerKind {
             Self::Pnpm => "pnpm",
             Self::Pip => "pip",
             Self::Uv => "uv",
+            Self::Composer => "composer",
         }
     }
 
@@ -30,6 +32,7 @@ impl ManagerKind {
             "pnpm" => Some(Self::Pnpm),
             "pip" => Some(Self::Pip),
             "uv" => Some(Self::Uv),
+            "composer" => Some(Self::Composer),
             _ => None,
         }
     }
@@ -47,6 +50,7 @@ impl ManagerKind {
 pub enum RuntimeRole {
     Node,
     Python,
+    Php,
 }
 
 impl RuntimeRole {
@@ -54,6 +58,7 @@ impl RuntimeRole {
         match self {
             Self::Node => "node",
             Self::Python => "python",
+            Self::Php => "php",
         }
     }
 
@@ -61,6 +66,7 @@ impl RuntimeRole {
         match value {
             "node" => Some(Self::Node),
             "python" => Some(Self::Python),
+            "php" => Some(Self::Php),
             _ => None,
         }
     }
@@ -199,7 +205,7 @@ fn validate(raw: RawManifest) -> Result<Manifest> {
     let manager = match raw.manager {
         Some(value) => Some(
             ManagerKind::parse(&value).ok_or_else(|| Error::InvalidManifest {
-                detail: format!("manager {value:?} must be npm, pnpm, pip, or uv"),
+                detail: format!("manager {value:?} must be npm, pnpm, pip, uv, or composer"),
             })?,
         ),
         None => None,
@@ -235,6 +241,11 @@ fn validate(raw: RawManifest) -> Result<Manifest> {
         if manager.is_python() && !runtimes.contains(&RuntimeRole::Python) {
             return Err(Error::InvalidManifest {
                 detail: format!("manager {} needs a python service", manager.as_str()),
+            });
+        }
+        if manager == ManagerKind::Composer && !runtimes.contains(&RuntimeRole::Php) {
+            return Err(Error::InvalidManifest {
+                detail: "manager composer needs a php service".to_string(),
             });
         }
     }
@@ -278,7 +289,7 @@ fn validate_site(name: &str, services: &[ServiceSpec], raw: RawSite) -> Result<S
 fn validate_service(raw: RawService) -> Result<ServiceSpec> {
     validate_ident(&raw.id, "service id")?;
     let runtime = RuntimeRole::parse(&raw.runtime).ok_or_else(|| Error::InvalidManifest {
-        detail: format!("service {} runtime must be node or python", raw.id),
+        detail: format!("service {} runtime must be node, python, or php", raw.id),
     })?;
     if raw.command.is_empty() || raw.command.iter().any(|arg| arg.is_empty()) {
         return Err(Error::InvalidManifest {

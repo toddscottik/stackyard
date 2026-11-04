@@ -220,6 +220,8 @@ fn run_dependency(
     let root = Path::new(&project.root);
     let node = optional_runtime(data_dir, project_id, stackyard_core::RuntimeRole::Node)?;
     let python = optional_runtime(data_dir, project_id, stackyard_core::RuntimeRole::Python)?;
+    let php = optional_runtime(data_dir, project_id, stackyard_core::RuntimeRole::Php)?;
+    let composer = stackyard_core::resolve_tool(data_dir, project_id, "composer")?;
     let pnpm = stackyard_core::resolve_tool(data_dir, project_id, "pnpm")?;
     let uv = stackyard_core::resolve_tool(data_dir, project_id, "uv")?;
     let venv = stackyard_core::venv_python(&stackyard_core::environment_dir(data_dir, project_id));
@@ -248,6 +250,8 @@ fn run_dependency(
             pnpm: pnpm_path,
             uv: uv_path,
             venv_python: venv_ref,
+            php: php.as_deref(),
+            composer: composer.as_ref().map(|package| Path::new(&package.launch)),
         },
     )?;
     let before = manifest_fingerprint(&plan.scope_dir);
@@ -263,11 +267,21 @@ fn run_dependency(
             });
         }
         if version.is_empty() {
-            version = tool_version(
-                &command.program,
-                &version_args(&command.program, &command.args),
-            )
-            .unwrap_or_else(|_| "unknown".to_string());
+            version = if plan.manager == stackyard_core::ManagerKind::Composer {
+                stackyard_core::php_project::probe_composer(
+                    php.as_deref().expect("validated PHP"),
+                    composer
+                        .as_ref()
+                        .map(|package| Path::new(&package.launch))
+                        .expect("validated Composer"),
+                )?
+            } else {
+                tool_version(
+                    &command.program,
+                    &version_args(&command.program, &command.args),
+                )
+                .unwrap_or_else(|_| "unknown".to_string())
+            };
         }
         let mut env = command.env.clone();
         env.push((
@@ -293,7 +307,9 @@ fn run_dependency(
         let status = run_command(command, &env, &log_path, cancel, Duration::from_secs(180))?;
         if !status.success() {
             let tail = log_tail(&log_path, 4_000);
-            let partial = plan.scope_dir.join("node_modules").exists() || venv.is_dir();
+            let partial = plan.scope_dir.join("node_modules").exists()
+                || venv.is_dir()
+                || plan.scope_dir.join("vendor").is_dir();
             return Err(Error::OperationFailed(format!(
                 "{} {} failed ({status}). manifest changes may be partial: {partial}\n{tail}",
                 plan.manager.as_str(),
@@ -319,11 +335,12 @@ fn run_command(
     cancel: &AtomicBool,
     limit: Duration,
 ) -> Result<std::process::ExitStatus> {
-    let mut group = group::spawn_grouped(
+    let mut group = group::spawn_grouped_scoped(
         &command.program,
         &command.args,
         &command.working_directory,
         env,
+        &command.env_remove,
         log_path,
     )?;
     let started = Instant::now();

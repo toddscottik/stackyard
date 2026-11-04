@@ -1,0 +1,12 @@
+{
+  "name": "stackyard-fixtures/php-http",
+  "version": "1.0.0",
+  "description": "Disposable PHP HTTP and extension-profile fixture",
+  "require": {
+    "php": "~8.5.0",
+    "ext-json": "*",
+    "ext-openssl": "*"
+  },
+  "repositories": [{"packagist.org": false}],
+  "config": {"allow-plugins": false}
+}

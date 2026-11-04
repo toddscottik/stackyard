@@ -127,12 +127,13 @@ async fn run() -> stackyard_core::Result<()> {
         [cmd, role, path] if cmd == "use-existing" => {
             let dir = ensure_engine(&data_dir).await?;
             print_outcome(
-                &roundtrip(
+                &roundtrip_within(
                     &dir,
                     Command::UseExisting {
                         role: role.to_string(),
                         path: path.to_string(),
                     },
+                    std::time::Duration::from_secs(45),
                 )
                 .await?,
             );
@@ -141,12 +142,13 @@ async fn run() -> stackyard_core::Result<()> {
         [cmd, project, package_id] if cmd == "select" => {
             let dir = ensure_engine(&data_dir).await?;
             print_outcome(
-                &roundtrip(
+                &roundtrip_within(
                     &dir,
                     Command::SelectPackage {
                         project_id: project.to_string(),
                         package_id: package_id.to_string(),
                     },
+                    std::time::Duration::from_secs(45),
                 )
                 .await?,
             );
@@ -403,6 +405,25 @@ async fn run() -> stackyard_core::Result<()> {
             );
             Ok(())
         }
+        [cmd, rest @ ..] if cmd == "php" => {
+            let dir = ensure_engine(&data_dir).await?;
+            php_command(&dir, rest).await
+        }
+        [cmd, address, port] if cmd == "memcached-probe" => {
+            let dir = ensure_engine(&data_dir).await?;
+            let endpoint = stackyard_core::memcached::MemcachedEndpoint {
+                address: address.parse().map_err(|_| {
+                    stackyard_core::Error::InvalidMessage(
+                        "Memcached needs a numeric IP address".into(),
+                    )
+                })?,
+                port: port.parse().map_err(|_| {
+                    stackyard_core::Error::InvalidMessage("Memcached needs a port".into())
+                })?,
+            };
+            print_outcome(&roundtrip(&dir, Command::MemcachedProbe { endpoint }).await?);
+            Ok(())
+        }
         [cmd, rest @ ..] if cmd == "deps" => {
             let dir = ensure_engine(&data_dir).await?;
             deps_command(&dir, rest).await
@@ -438,6 +459,17 @@ async fn run() -> stackyard_core::Result<()> {
             "unknown command {other:?}; run stackyard --help"
         ))),
     }
+}
+
+async fn php_command(dir: &std::path::Path, args: &[String]) -> stackyard_core::Result<()> {
+    let command = match args {
+        [action, project] if action == "status" => Command::PhpStatus { project_id: project.clone() },
+        [action, project, extensions @ ..] if action == "profile" => Command::PhpApplyProfile { project_id: project.clone(), extensions: extensions.to_vec() },
+        [action, project, id] if action == "install-extension" => Command::PhpInstallExtension { project_id: project.clone(), catalog_id: id.clone() },
+        _ => return Err(stackyard_core::Error::InvalidMessage("usage: stackyard php status PROJECT | profile PROJECT [EXTENSION...] | install-extension PROJECT CATALOG_ID".into())),
+    };
+    print_outcome(&roundtrip_within(dir, command, std::time::Duration::from_secs(45)).await?);
+    Ok(())
 }
 
 async fn deps_command(dir: &std::path::Path, args: &[String]) -> stackyard_core::Result<()> {
@@ -706,6 +738,10 @@ fn print_help() {
          stackyard deps list ID [--scope DIR]\n  \
          stackyard deps recover ID [--scope DIR]\n  \
          stackyard deps cancel TASK\n  \
+         stackyard php status PROJECT\n  \
+         stackyard php profile PROJECT [EXTENSION...]\n  \
+         stackyard php install-extension PROJECT CATALOG_ID\n  \
+         stackyard memcached-probe NUMERIC_IP PORT\n  \
          stackyard diagnostics [PATH]\n  \
          stackyard updates\n  \
          stackyard cleanup\n  \
@@ -737,6 +773,39 @@ fn print_help() {
 
 fn print_outcome(outcome: &Outcome) {
     match outcome {
+        Outcome::Php { view } => {
+            println!(
+                "PHP {} {} {}",
+                view.identity.version, view.identity.target, view.identity.extension_build
+            );
+            println!(
+                "profile: {}",
+                view.profile
+                    .as_ref()
+                    .map(|p| p.revision.as_str())
+                    .unwrap_or("isolated -n (no shared extensions)")
+            );
+            for artifact in &view.inventory {
+                let enabled = view.profile.as_ref().is_some_and(|profile| {
+                    profile.extensions.iter().any(|item| item.id == artifact.id)
+                });
+                println!(
+                    "extension: {} {} {}",
+                    artifact.name,
+                    artifact.version,
+                    if enabled { "enabled" } else { "disabled" }
+                );
+            }
+            println!("{}", view.limitations);
+        }
+        Outcome::Memcached { probe } => println!(
+            "Memcached {} {}:{} set_get={} cleanup={}",
+            probe.version,
+            probe.endpoint.address,
+            probe.endpoint.port,
+            probe.roundtrip_verified,
+            probe.cleanup_verified
+        ),
         Outcome::Status {
             pid,
             data_dir,

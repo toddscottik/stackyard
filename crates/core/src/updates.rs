@@ -80,6 +80,25 @@ pub fn switch_project(data_dir: &Path, project_id: &str, package_id: &str) -> Re
         });
     };
     let previous = store.get_selection(project_id, &package.name)?;
+    if package.name == "php" {
+        let _ = crate::php::probe_php(Path::new(&package.launch))?;
+        let projects = if project_id == crate::DEFAULT_PROJECT {
+            let mut inherited = Vec::new();
+            for project in store.list_projects()? {
+                if store.get_selection(&project.id, "php")?.is_none() {
+                    inherited.push(project.id);
+                }
+            }
+            inherited
+        } else {
+            vec![project_id.to_string()]
+        };
+        for project in projects {
+            if let Some(profile) = crate::php::read_php_profile(data_dir, &project)? {
+                crate::php::verify_php_profile(Path::new(&package.launch), &profile)?;
+            }
+        }
+    }
     if let Some(previous_id) = previous.as_deref() {
         if previous_id != package.id {
             if let Some(previous_package) = store.get_package(previous_id)? {
@@ -274,8 +293,8 @@ fn same_line(name: &str, installed: &str, candidate: &str) -> bool {
         return false;
     }
     match name {
-        "node" | "pnpm" | "uv" => installed[0] == candidate[0],
-        "python" | "apache" => {
+        "node" | "pnpm" | "uv" | "composer" => installed[0] == candidate[0],
+        "python" | "apache" | "php" => {
             installed.len() >= 2
                 && candidate.len() >= 2
                 && installed[0] == candidate[0]

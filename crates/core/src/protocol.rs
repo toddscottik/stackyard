@@ -27,6 +27,20 @@ pub enum Command {
     Stop,
     ListCatalog,
     ListPackages,
+    PhpStatus {
+        project_id: String,
+    },
+    PhpApplyProfile {
+        project_id: String,
+        extensions: Vec<String>,
+    },
+    PhpInstallExtension {
+        project_id: String,
+        catalog_id: String,
+    },
+    MemcachedProbe {
+        endpoint: crate::memcached::MemcachedEndpoint,
+    },
     Discover,
     StartInstall {
         catalog_id: String,
@@ -211,6 +225,12 @@ pub struct Response {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Outcome {
+    Php {
+        view: Box<crate::php_project::PhpProjectView>,
+    },
+    Memcached {
+        probe: crate::memcached::MemcachedProbe,
+    },
     Status {
         pid: u32,
         data_dir: String,

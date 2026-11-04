@@ -105,6 +105,10 @@ fn python_module(args: &[String]) {
         return;
     }
     if args.get(1).map(String::as_str) == Some("pip") {
+        if args.iter().any(|arg| arg == "--version") {
+            println!("pip 1.0.0");
+            return;
+        }
         if PathBuf::from("pip-slow").is_file() {
             thread::sleep(Duration::from_secs(30));
         }

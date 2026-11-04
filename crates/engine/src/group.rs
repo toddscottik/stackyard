@@ -26,6 +26,17 @@ pub fn spawn_grouped(
     env: &[(String, String)],
     log_path: &Path,
 ) -> Result<GroupProcess> {
+    spawn_grouped_scoped(program, args, cwd, env, &[], log_path)
+}
+
+pub fn spawn_grouped_scoped(
+    program: &Path,
+    args: &[String],
+    cwd: &Path,
+    env: &[(String, String)],
+    env_remove: &[String],
+    log_path: &Path,
+) -> Result<GroupProcess> {
     let mut command = Command::new(program);
     command
         .args(args)
@@ -33,6 +44,9 @@ pub fn spawn_grouped(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    for key in env_remove {
+        command.env_remove(key);
+    }
     for (key, value) in env {
         command.env(key, value);
     }

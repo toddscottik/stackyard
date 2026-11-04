@@ -149,14 +149,191 @@ fn spawn_engine(data_dir: &Path) -> Result<()> {
         .stderr(Stdio::null());
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW. The engine is a background process of this user.
-        command.creation_flags(0x0800_0000);
+        // Replacing stdio alone does not stop std::process::Command from
+        // inheriting other Windows handles, including captured shell pipes.
+        // The stable toolchain has no Command API to disable inheritance.
+        windows_background::spawn(&command)
     }
-    command
-        .spawn()
-        .map_err(|source| Error::io("start engine process", source))?;
-    Ok(())
+    #[cfg(not(windows))]
+    {
+        command
+            .spawn()
+            .map_err(|source| Error::io("start engine process", source))?;
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+mod windows_background {
+    use std::ffi::{c_void, OsStr};
+    use std::io;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
+
+    use super::{Command, Error, Result};
+
+    #[repr(C)]
+    struct StartupInfo {
+        size: u32,
+        reserved: *mut u16,
+        desktop: *mut u16,
+        title: *mut u16,
+        x: u32,
+        y: u32,
+        x_size: u32,
+        y_size: u32,
+        x_chars: u32,
+        y_chars: u32,
+        fill_attribute: u32,
+        flags: u32,
+        show_window: u16,
+        reserved_size: u16,
+        reserved_bytes: *mut u8,
+        stdin: *mut c_void,
+        stdout: *mut c_void,
+        stderr: *mut c_void,
+    }
+
+    #[repr(C)]
+    struct ProcessInfo {
+        process: *mut c_void,
+        thread: *mut c_void,
+        process_id: u32,
+        thread_id: u32,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateProcessW(
+            application: *const u16,
+            command_line: *mut u16,
+            process_security: *const c_void,
+            thread_security: *const c_void,
+            inherit_handles: i32,
+            flags: u32,
+            environment: *const c_void,
+            directory: *const u16,
+            startup: *const StartupInfo,
+            process: *mut ProcessInfo,
+        ) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+
+    pub(super) fn spawn(command: &Command) -> Result<()> {
+        // engine_command sets only an explicit executable and argument array.
+        // Null environment/directory inherit the current user's values.
+        let mut application = wide(command.get_program())?;
+        application.push(0);
+        let mut line = quote_argument(command.get_program())?;
+        for argument in command.get_args() {
+            line.push(b' ' as u16);
+            line.extend(quote_argument(argument)?);
+        }
+        line.push(0);
+        // The Win32 command-line length includes its terminating NUL.
+        if line.len() > 32_767 {
+            return Err(Error::io(
+                "start engine process",
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "engine command line exceeds Windows limit",
+                ),
+            ));
+        }
+        // SAFETY: both C structs consist of integer/pointer fields; zero is a
+        // valid initial value. All strings remain alive through CreateProcessW.
+        let mut startup: StartupInfo = unsafe { std::mem::zeroed() };
+        startup.size = std::mem::size_of::<StartupInfo>() as u32;
+        let mut process: ProcessInfo = unsafe { std::mem::zeroed() };
+        // CREATE_NO_WINDOW matches the previous launch. No BREAKAWAY or job
+        // flags are used. FALSE prevents every inheritable parent handle from
+        // reaching the engine, not merely the three standard handles.
+        let created = unsafe {
+            CreateProcessW(
+                application.as_ptr(),
+                line.as_mut_ptr(),
+                ptr::null(),
+                ptr::null(),
+                0,
+                0x0800_0000,
+                ptr::null(),
+                ptr::null(),
+                &startup,
+                &mut process,
+            )
+        };
+        if created == 0 {
+            return Err(Error::io(
+                "start engine process",
+                io::Error::last_os_error(),
+            ));
+        }
+        // SAFETY: CreateProcessW returned success and owns these two handles.
+        // Closing them does not terminate the per-user background process.
+        unsafe {
+            CloseHandle(process.thread);
+            CloseHandle(process.process);
+        }
+        Ok(())
+    }
+
+    fn wide(value: &OsStr) -> Result<Vec<u16>> {
+        let value: Vec<u16> = value.encode_wide().collect();
+        if value.contains(&0) {
+            return Err(Error::io(
+                "start engine process",
+                io::Error::new(io::ErrorKind::InvalidInput, "engine argument contains NUL"),
+            ));
+        }
+        Ok(value)
+    }
+
+    /// Windows CRT argv quoting: double backslashes before quotes and before
+    /// the closing quote, while preserving all other UTF-16 units exactly.
+    fn quote_argument(value: &OsStr) -> Result<Vec<u16>> {
+        let mut quoted = vec![b'"' as u16];
+        let mut slashes = 0;
+        for unit in wide(value)? {
+            if unit == b'\\' as u16 {
+                slashes += 1;
+                continue;
+            }
+            let count = if unit == b'"' as u16 {
+                slashes * 2 + 1
+            } else {
+                slashes
+            };
+            quoted.extend(std::iter::repeat_n(b'\\' as u16, count));
+            quoted.push(unit);
+            slashes = 0;
+        }
+        quoted.extend(std::iter::repeat_n(b'\\' as u16, slashes * 2));
+        quoted.push(b'"' as u16);
+        Ok(quoted)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn quotes_windows_arguments_without_losing_utf16_or_backslashes() {
+            for (input, expected) in [
+                ("", "\"\""),
+                ("plain", "\"plain\""),
+                ("пример path", "\"пример path\""),
+                ("C:\\space dir\\", "\"C:\\space dir\\\\\""),
+                ("say \"hello\"", "\"say \\\"hello\\\"\""),
+                ("slash\\\"quote", "\"slash\\\\\\\"quote\""),
+            ] {
+                assert_eq!(
+                    quote_argument(OsStr::new(input)).unwrap(),
+                    expected.encode_utf16().collect::<Vec<_>>()
+                );
+            }
+            assert!(quote_argument(OsStr::new("bad\0argument")).is_err());
+        }
+    }
 }
 
 fn engine_command(data_dir: &Path) -> Result<Command> {

@@ -1,0 +1,12 @@
+schema = 1
+name = "php-http"
+manager = "composer"
+
+[[service]]
+id = "web"
+runtime = "php"
+command = ["php", "-S", "127.0.0.1:{port}", "-t", "public"]
+ready_timeout_secs = 15
+
+[site]
+service = "web"

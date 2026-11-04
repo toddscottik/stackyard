@@ -8,6 +8,11 @@ pub fn extract(format: &str, archive: &Path, destination: &Path) -> Result<()> {
     match format {
         "zip" => extract_zip(archive, destination),
         "tar.gz" => extract_tar_gz(archive, destination),
+        "phar" => {
+            fs::copy(archive, destination.join("composer.phar"))
+                .map_err(|source| Error::io("store verified Composer phar", source))?;
+            Ok(())
+        }
         other => Err(Error::InvalidMessage(format!(
             "archive format {other:?} is not supported"
         ))),
@@ -372,6 +377,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn tar_gz_keeps_relative_symlinks_and_executable_mode() {
         let bytes = gzip_tar(|builder| {
             append_file(builder, "python/bin/python3.12", 0o755, b"python-bytes\n");
