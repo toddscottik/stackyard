@@ -699,6 +699,21 @@ mod tests {
         listener
     }
 
+    fn assert_connection_closed(stream: &mut TcpStream) {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        match stream.read(&mut [0]) {
+            Ok(0) => {}
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted
+                ) => {}
+            result => panic!("expected closed connection, got {result:?}"),
+        }
+    }
+
     #[test]
     fn exclusive_loopback_rejects_reuseaddr_contender() {
         let listener = exclusive_listener(0).unwrap();
@@ -742,21 +757,36 @@ mod tests {
     }
 
     #[test]
+    fn idle_relay_shutdown_releases_listener() {
+        let private = PrivateSocket::create().unwrap();
+        let listener = exclusive_listener(0).unwrap();
+        let address = listener.local_addr().unwrap();
+        let relay = Relay::start(listener, private.path.clone()).unwrap();
+        relay.shutdown();
+        // No TCP connections were made, so TIME_WAIT cannot prevent rebinding.
+        let _rebound = exclusive_listener(address.port()).expect("relay released idle listener");
+    }
+
+    #[test]
     fn relay_bounds_connections_and_closes_inflight_on_shutdown() {
         let private = PrivateSocket::create().unwrap();
         let backend = fixture_listener(&private);
         backend.set_nonblocking(true).unwrap();
         let accepted = Arc::new(AtomicUsize::new(0));
         let count = Arc::clone(&accepted);
-        let server_stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = Arc::clone(&server_stop);
+        let (server_stop, worker_stop) = std::sync::mpsc::channel::<()>();
         let server = thread::spawn(move || {
             let mut peers = Vec::new();
-            while !worker_stop.load(Ordering::Acquire) {
+            // Disconnect also stops the fixture when a test assertion panics.
+            while matches!(
+                worker_stop.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Empty)
+            ) {
                 match backend.accept() {
-                    Ok((peer, _)) => {
-                        peers.push(peer);
+                    Ok((mut peer, _)) => {
                         count.fetch_add(1, Ordering::Release);
+                        peer.write_all(b"ready").unwrap();
+                        peers.push(peer);
                     }
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(5))
@@ -769,43 +799,47 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let relay = Relay::start(listener, private.path.clone()).unwrap();
         let mut clients = Vec::new();
-        for _ in 0..MAX_CONNECTIONS {
-            clients.push(TcpStream::connect(address).unwrap());
-        }
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while accepted.load(Ordering::Acquire) < MAX_CONNECTIONS {
-            assert!(Instant::now() < deadline);
-            thread::sleep(Duration::from_millis(10));
+        for index in 0..MAX_CONNECTIONS {
+            let mut client = TcpStream::connect(address).unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            // A successful TCP connect only enters the listen backlog. Wait
+            // for a backend roundtrip before filling the next relay slot.
+            let mut ready = [0; 5];
+            client.read_exact(&mut ready).unwrap_or_else(|err| {
+                panic!("relay connection {} was not ready: {err}", index + 1)
+            });
+            assert_eq!(&ready, b"ready");
+            clients.push(client);
         }
         let mut excess = TcpStream::connect(address).unwrap();
-        excess
-            .set_read_timeout(Some(Duration::from_secs(1)))
-            .unwrap();
-        let mut byte = [0];
-        match excess.read(&mut byte) {
-            Ok(0) => {}
-            Err(err)
-                if matches!(
-                    err.kind(),
-                    io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted
-                ) => {}
-            result => panic!("extra connection not rejected: {result:?}"),
-        }
+        assert_connection_closed(&mut excess);
         assert_eq!(accepted.load(Ordering::Acquire), MAX_CONNECTIONS);
         let started = Instant::now();
         relay.shutdown();
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "relay shutdown took {:?}",
+            started.elapsed()
+        );
         for mut client in clients {
-            client
-                .set_read_timeout(Some(Duration::from_secs(1)))
-                .unwrap();
-            assert!(
-                !matches!(client.read(&mut byte), Err(err) if err.kind() == io::ErrorKind::TimedOut)
-            );
+            assert_connection_closed(&mut client);
         }
-        server_stop.store(true, Ordering::Release);
+        drop(server_stop);
         server.join().unwrap();
-        assert!(exclusive_listener(address.port()).is_ok());
+        // Closed connections may leave this port in TIME_WAIT, especially on
+        // macOS. Refusing new connections proves the listener was released
+        // without requiring immediate reuse of the same local address.
+        let err = TcpStream::connect_timeout(&address, IO_WAIT)
+            .expect_err("relay listener must be closed after shutdown");
+        assert!(
+            matches!(
+                err.kind(),
+                io::ErrorKind::ConnectionRefused | io::ErrorKind::TimedOut
+            ),
+            "unexpected error connecting to stopped relay: {err}"
+        );
     }
 
     #[test]

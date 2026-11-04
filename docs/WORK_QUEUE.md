@@ -88,3 +88,7 @@ Stage 8A Windows acceptance is committed in 79d5bb1. Mac execution is deferred, 
 Stage 9 resumed with the compact plan in S9_AGENT_PLAN.md: Luna workers own manifest/readiness; Sol at medium reasoning owns tightly coupled scope execution. Coordinator owns migration/preview/adapters/review. Previous interrupted agents are not resumed.
 
 Stage 9 completed Windows review on 5 November 2026. Coordinator evidence: S9-INTEGRATE.md. All canonical gates passed with native fixtures enabled; scoped live pnpm/Python service checks are recorded in S9-SCOPES.md. Legacy state, venv paths and PHP profile pointers survive migration. Independent CI resolver-test work remains outside this stage's commit. Stage 10.1 is ready; Mac acceptance stays pending.
+
+## CI relay test synchronization — 5 November 2026
+
+Fixed locally / coordinator. `crates/engine/src/cache.rs` now synchronizes each backend connection before testing the 32-client limit, checks exact client closure, and separates active-connection shutdown from idle-listener rebinding. Production behavior and the two-second shutdown limit are unchanged. The original deadline failure reproduced locally under concurrency; final stress passed 20/20 runs with four concurrent processes. Windows workspace tests (74 core/14 engine), workspace Clippy, formatting and whitespace checks passed. Evidence and reproduction: [CI-RELAY](evidence/CI-RELAY.md). Next: push and verify new Windows/macOS CI runs; native Mac acceptance remains pending.
