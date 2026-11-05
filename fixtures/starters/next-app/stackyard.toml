@@ -1,0 +1,17 @@
+schema = 2
+name = "__STACKYARD_NAME__"
+
+[[scope]]
+id = "app"
+directory = "."
+runtime = "node"
+manager = "pnpm"
+lockfile_root = "."
+
+[[service]]
+id = "web"
+scope = "app"
+command = ["node", "node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", "{port}"]
+working_directory = "."
+endpoint = { protocol = "http", port = "auto" }
+readiness = { kind = "http", path = "/", statuses = [200], timeout_secs = 60 }

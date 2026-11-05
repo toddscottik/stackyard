@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, errorText, formatProgress, type CatalogItem, type Operation, type Task } from "../api";
+import { api, errorText, formatProgress, type CatalogItem, type CreatePlan, type Operation, type Task } from "../api";
 
 type DependencyInput = {
   projectId: string;
@@ -9,10 +9,13 @@ type DependencyInput = {
   scopeId?: string;
 };
 
-type Request = { kind: "install"; item: CatalogItem } | { kind: "task"; input: DependencyInput };
+type Request =
+  | { kind: "install"; item: CatalogItem }
+  | { kind: "task"; input: DependencyInput }
+  | { kind: "create"; plan: CreatePlan };
 type Entry = {
   id: string;
-  kind: Request["kind"];
+  kind: "install" | "task";
   label: string;
   state: string;
   message: string;
@@ -53,7 +56,11 @@ function taskEntry(task: Task, engineId: number | null): Entry {
 }
 
 function requestKey(request: Request): string {
-  return request.kind === "install" ? `install:${request.item.id}` : `deps:${request.input.projectId}`;
+  switch (request.kind) {
+    case "install": return `install:${request.item.id}`;
+    case "task": return `deps:${request.input.projectId}`;
+    case "create": return `create:${request.plan.request.name}`;
+  }
 }
 
 function dependencyProject(entry: Entry): string | undefined {
@@ -230,11 +237,14 @@ export function useActivity({ enabled, engineId, onInstalled }: {
   }, [enabled, engineId]);
 
   function isRunning(request: Request) {
-    return ledger.current.some((entry) => entry.state === "running" && (
-      request.kind === "install"
-        ? entry.operation?.catalogId === request.item.id
-        : dependencyProject(entry) === request.input.projectId
-    ));
+    return ledger.current.some((entry) => {
+      if (entry.state !== "running") return false;
+      switch (request.kind) {
+        case "install": return entry.operation?.catalogId === request.item.id;
+        case "task": return dependencyProject(entry) === request.input.projectId;
+        case "create": return entry.label === `create project ${request.plan.request.name}`;
+      }
+    });
   }
 
   async function start(request: Request) {
@@ -248,6 +258,8 @@ export function useActivity({ enabled, engineId, onInstalled }: {
       let result: Entry;
       if (request.kind === "install") {
         result = operationEntry(await api.startInstall(request.item.id), engineId);
+      } else if (request.kind === "create") {
+        result = taskEntry(await api.applyCreate(request.plan), engineId);
       } else {
         const { projectId, scopeId, scope, action, packageName } = request.input;
         const task = scopeId
@@ -260,8 +272,10 @@ export function useActivity({ enabled, engineId, onInstalled }: {
     } catch (err) {
       const label = request.kind === "install"
         ? request.item.id
-        : `deps ${request.input.action} ${request.input.projectId}`;
-      upsert({ id: failureId, kind: request.kind, engineId, label, request, state: "request failed", message: errorText(err) });
+        : request.kind === "create"
+          ? `create project ${request.plan.request.name}`
+          : `deps ${request.input.action} ${request.input.projectId}`;
+      upsert({ id: failureId, kind: request.kind === "install" ? "install" : "task", engineId, label, request, state: "request failed", message: errorText(err) });
       throw err;
     } finally {
       submitting.current.delete(key);
@@ -324,6 +338,19 @@ export function useActivity({ enabled, engineId, onInstalled }: {
     error,
     refresh: () => refresh.current(),
     startInstall,
+    startCreate: async (plan: CreatePlan): Promise<Task> => {
+      const entry = await start({ kind: "create", plan });
+      if (!entry) throw new Error("Connect to the engine or wait for the current creation operation.");
+      return entry;
+    },
+    startScopedInstall: async (projectId: string, scopeId: string): Promise<Task> => {
+      const entry = await start({
+        kind: "task",
+        input: { projectId, scopeId, action: "install", scope: "", packageName: "" },
+      });
+      if (!entry) throw new Error("Connect to the engine or wait for the current dependency operation.");
+      return entry;
+    },
     installing: (id: string) => pending.has(`install:${id}`) || entries.some((entry) => entry.operation?.catalogId === id && entry.state === "running"),
     startDependency: async (input: DependencyInput) => {
       await start({ kind: "task", input: { ...input, packageName: input.packageName.trim(), scope: input.scope.trim() } });

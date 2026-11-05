@@ -88,6 +88,43 @@ async fn query(command: Command) -> Result<Outcome, String> {
         .map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+pub fn list_recipes() -> Vec<stackyard_core::recipes::RecipeInfo> {
+    stackyard_core::recipes::recipes()
+}
+
+#[tauri::command]
+pub async fn plan_create(
+    request: stackyard_core::create::CreateRequest,
+) -> Result<stackyard_core::create::CreatePlan, String> {
+    match query(Command::PlanCreate { request }).await? {
+        Outcome::CreatePlan { plan } => Ok(*plan),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
+pub async fn apply_create(plan: stackyard_core::create::CreatePlan) -> Result<TaskView, String> {
+    task(call(Command::ApplyCreate { plan }).await?)
+}
+
+#[tauri::command]
+pub async fn record_create_runtime(role: String, path: String) -> Result<String, String> {
+    match call_within(
+        Command::RecordCreateRuntime { role, path },
+        Duration::from_secs(45),
+    )
+    .await?
+    {
+        Outcome::Packages { packages } => packages
+            .into_iter()
+            .next()
+            .map(|package| package.id)
+            .ok_or_else(|| "No recorded package was returned".to_string()),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
 async fn cache_outcome(
     command: Command,
 ) -> Result<Vec<stackyard_core::CacheInstanceRecord>, String> {

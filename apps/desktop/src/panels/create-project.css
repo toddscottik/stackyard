@@ -1,0 +1,148 @@
+.create-project {
+  max-width: 980px;
+  min-width: 0;
+}
+
+.create-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.create-heading h2 {
+  margin: 0 0 4px;
+  font-size: var(--fs-section);
+  line-height: 1.3;
+}
+
+.create-heading p {
+  margin: 0;
+}
+
+.create-step {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: var(--fs-small);
+  line-height: 18px;
+}
+
+.create-review-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.create-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.create-card h3 {
+  margin: 0 0 14px;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.create-card h4 {
+  margin: 16px 0 6px;
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+.create-card > .meta,
+.create-card > .hint {
+  margin: 8px 0;
+}
+
+.create-path-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.create-two-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.create-target {
+  display: grid;
+  gap: 4px;
+  margin: 14px 0 0;
+}
+
+.create-target code,
+.create-card code {
+  overflow-wrap: anywhere;
+}
+
+.create-existing {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.create-existing summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.create-existing[open] .field {
+  width: 100%;
+}
+
+.create-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+
+.create-commands {
+  display: grid;
+  gap: 8px;
+}
+
+.create-commands p {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.create-actions {
+  margin: 18px 0 0;
+}
+
+.create-error {
+  margin-top: 12px;
+}
+
+@media (max-width: 700px) {
+  .create-two-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .create-card {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 460px) {
+  .create-path-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

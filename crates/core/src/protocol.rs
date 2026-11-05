@@ -156,6 +156,17 @@ pub enum Command {
         generation: Option<String>,
     },
     ListActivity,
+    ListRecipes,
+    PlanCreate {
+        request: crate::create::CreateRequest,
+    },
+    ApplyCreate {
+        plan: crate::create::CreatePlan,
+    },
+    RecordCreateRuntime {
+        role: String,
+        path: String,
+    },
     Exec {
         project_id: String,
         service_id: String,
@@ -361,6 +372,12 @@ pub enum Outcome {
     Activity {
         operations: Vec<Outcome>,
         tasks: Vec<Outcome>,
+    },
+    Recipes {
+        recipes: Vec<crate::recipes::RecipeInfo>,
+    },
+    CreatePlan {
+        plan: Box<crate::create::CreatePlan>,
     },
     Task {
         id: String,

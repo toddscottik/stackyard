@@ -1,4 +1,5 @@
 mod commands;
+mod folder;
 mod open;
 
 use tauri::menu::{Menu, MenuItem};
@@ -11,6 +12,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::engine_status,
             commands::probe_engine,
+            folder::pick_project_parent,
+            commands::list_recipes,
+            commands::plan_create,
+            commands::apply_create,
+            commands::record_create_runtime,
             commands::engine_setting,
             commands::put_setting,
             commands::list_packages,

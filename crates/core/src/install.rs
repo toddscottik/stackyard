@@ -1,9 +1,10 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::archive::{extract, read_to_digest};
@@ -12,6 +13,38 @@ use crate::error::{Error, Result};
 use crate::store::{PackageRecord, Store};
 
 pub const DEFAULT_PROJECT: &str = "default";
+
+struct InstallClaim((PathBuf, String));
+
+impl InstallClaim {
+    fn acquire(data_dir: &Path, id: &str) -> Result<Self> {
+        let key = (data_dir.to_path_buf(), id.to_string());
+        if !install_claims()
+            .lock()
+            .expect("install claims")
+            .insert(key.clone())
+        {
+            return Err(Error::OperationFailed(format!(
+                "Package {id} is already being installed"
+            )));
+        }
+        Ok(Self(key))
+    }
+}
+
+impl Drop for InstallClaim {
+    fn drop(&mut self) {
+        install_claims()
+            .lock()
+            .expect("install claims")
+            .remove(&self.0);
+    }
+}
+
+fn install_claims() -> &'static Mutex<HashSet<(PathBuf, String)>> {
+    static CLAIMS: OnceLock<Mutex<HashSet<(PathBuf, String)>>> = OnceLock::new();
+    CLAIMS.get_or_init(Mutex::default)
+}
 
 #[derive(Debug, Clone)]
 pub struct Progress {
@@ -48,6 +81,12 @@ pub fn install_reader<R: Read>(
 ) -> Result<PackageRecord> {
     require_host(package)?;
     validate_id(&package.id)?;
+    let _claim = InstallClaim::acquire(data_dir, &package.id)?;
+    if progress.cancelled() {
+        return Err(Error::Cancelled {
+            id: package.id.clone(),
+        });
+    }
     let store = Store::open(data_dir)?;
     if store.get_package(&package.id)?.is_some() {
         return Err(Error::AlreadyInstalled {
@@ -105,6 +144,12 @@ pub fn install_reader<R: Read>(
             actual: digest,
         });
     }
+    if progress.cancelled() {
+        let _ = fs::remove_dir_all(&incoming);
+        return Err(Error::Cancelled {
+            id: package.id.clone(),
+        });
+    }
     let tree = incoming.join("tree");
     fs::create_dir_all(&tree).map_err(|source| Error::io("create extract directory", source))?;
     if let Err(err) = extract(&package.format, &payload, &tree) {
@@ -123,9 +168,14 @@ pub fn install_reader<R: Read>(
         fs::create_dir_all(parent)
             .map_err(|source| Error::io("create package directory", source))?;
     }
+    if progress.cancelled() {
+        let _ = fs::remove_dir_all(&incoming);
+        return Err(Error::Cancelled {
+            id: package.id.clone(),
+        });
+    }
     if let Err(source) = fs::rename(&tree, &final_dir) {
         let _ = fs::remove_dir_all(&incoming);
-        let _ = fs::remove_dir_all(&final_dir);
         return Err(Error::io("commit package directory", source));
     }
     let _ = fs::remove_dir_all(&incoming);
@@ -179,6 +229,11 @@ pub fn download_and_install(
     progress: &Progress,
 ) -> Result<PackageRecord> {
     require_host(package)?;
+    if progress.cancelled() {
+        return Err(Error::Cancelled {
+            id: package.id.clone(),
+        });
+    }
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(120))
@@ -198,6 +253,28 @@ pub fn download_and_install(
 }
 
 pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<PackageRecord> {
+    record_existing(data_dir, role, executable, true)
+}
+
+pub fn record_existing_runtime(
+    data_dir: &Path,
+    role: &str,
+    executable: &Path,
+) -> Result<PackageRecord> {
+    if !matches!(role, "node" | "python") || !executable.is_absolute() {
+        return Err(Error::InvalidMessage(
+            "Choose an absolute Node or Python executable path".into(),
+        ));
+    }
+    record_existing(data_dir, role, executable, false)
+}
+
+fn record_existing(
+    data_dir: &Path,
+    role: &str,
+    executable: &Path,
+    select_default: bool,
+) -> Result<PackageRecord> {
     if !matches!(
         role,
         "node" | "python" | "php" | "composer" | "pnpm" | "uv" | "apache" | "mysql" | "postgres"
@@ -290,7 +367,7 @@ pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<
             store.delete_package(&id)?;
             return Err(error);
         }
-    } else {
+    } else if select_default {
         store.select_package(DEFAULT_PROJECT, role, &id)?;
     }
     Ok(record)

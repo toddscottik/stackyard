@@ -61,3 +61,32 @@ test("passive probe, activity, and log cursor use their invoke contracts", async
     ["follow_logs", { projectId: "alpha", serviceId: "web", offset: 24, generation: "before" }],
   ]);
 });
+
+test("creation sends the reviewed plan and records runtimes without the default selection command", async () => {
+  const request = {
+    parent: "D:\\Workspace",
+    name: "my-app",
+    recipe: "node-http",
+    manager: "npm",
+    runtime: { kind: "installed", id: "existing-node" },
+    tool: null,
+  };
+  const plan = { request, target: "D:\\Workspace\\my-app", fingerprint: "reviewed",
+    files: ["stackyard.toml", "server.js"], downloads: [], install_command: ["npm", "ci"],
+    launch_command: ["node", "--watch", "server.js"], notes: [] };
+  const calls = [];
+  globalThis.window = { __TAURI_INTERNALS__: { async invoke(command, args) {
+    calls.push([command, args]);
+    if (command === "plan_create") return plan;
+    if (command === "record_create_runtime") return "existing-node";
+    return { id: "task-1", state: "running" };
+  } } };
+  assert.equal(await api.recordCreateRuntime("node", "D:\\Tools\\node.exe"), "existing-node");
+  assert.equal(await api.planCreate(request), plan);
+  assert.equal((await api.applyCreate(plan)).id, "task-1");
+  assert.deepEqual(calls, [
+    ["record_create_runtime", { role: "node", path: "D:\\Tools\\node.exe" }],
+    ["plan_create", { request }],
+    ["apply_create", { plan }],
+  ]);
+});

@@ -5,6 +5,8 @@ use std::process::ExitCode;
 use stackyard_core::{default_data_dir, ensure_engine, roundtrip, roundtrip_within};
 use stackyard_core::{Command, Outcome};
 
+mod create_cli;
+
 #[tokio::main]
 async fn main() -> ExitCode {
     match run().await {
@@ -47,6 +49,7 @@ async fn run() -> stackyard_core::Result<()> {
             Ok(())
         }
         [cmd] if cmd == "serve" => stackyard_engine::serve(&data_dir),
+        [cmd, args @ ..] if cmd == "create" => create_cli::run(&data_dir, args).await,
         [cmd] if cmd == "status" => {
             let dir = ensure_engine(&data_dir).await?;
             print_outcome(&roundtrip(&dir, Command::Status).await?);
@@ -917,6 +920,10 @@ fn print_help() {
          stackyard deps recover ID [--scope DIR]\n  \
          stackyard deps cancel TASK\n  \
          stackyard preview ROOT [DRAFT_FILE]\n  \
+         stackyard create recipes\n  \
+         stackyard create plan PARENT NAME RECIPE MANAGER installed:ID|catalog:ID [TOOL]\n  \
+         stackyard create apply PLAN_FILE [--wait]\n  \
+         stackyard create status TASK_ID | create cancel TASK_ID\n  \
          stackyard select-scope PROJECT SCOPE_ID PACKAGE_ID\n  \
          stackyard php status PROJECT\n  \
          stackyard php profile PROJECT [EXTENSION...]\n  \
@@ -958,6 +965,8 @@ fn print_help() {
 
 fn print_outcome(outcome: &Outcome) {
     match outcome {
+        Outcome::Recipes { recipes } => create_cli::print_json(recipes),
+        Outcome::CreatePlan { plan } => create_cli::print_json(plan),
         Outcome::Activity { operations, tasks } => {
             for item in operations.iter().chain(tasks) {
                 print_outcome(item);

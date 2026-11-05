@@ -14,3 +14,4 @@ stackyard-core.workspace = true
 stackyard-engine.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
+serde.workspace = true

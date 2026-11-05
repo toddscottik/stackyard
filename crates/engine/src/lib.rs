@@ -2,6 +2,7 @@
 
 mod cache;
 mod control;
+mod create;
 mod database;
 mod endpoint;
 mod front;
@@ -444,6 +445,20 @@ async fn dispatch(
             operations: jobs.list(),
             tasks: tasks.list(),
         }),
+        Command::ListRecipes => Ok(Outcome::Recipes {
+            recipes: stackyard_core::recipes::recipes(),
+        }),
+        Command::PlanCreate { request } => Ok(Outcome::CreatePlan {
+            plan: Box::new(stackyard_core::create::plan_create(data_dir, request)?),
+        }),
+        Command::ApplyCreate { plan } => create::start(data_dir, jobs, tasks, plan),
+        Command::RecordCreateRuntime { role, path } => Ok(Outcome::Packages {
+            packages: vec![stackyard_core::record_existing_runtime(
+                data_dir,
+                role,
+                Path::new(path),
+            )?],
+        }),
         Command::Exec {
             project_id,
             service_id,
@@ -612,8 +627,21 @@ fn start_package_install(
     data_dir: &Path,
     package: stackyard_core::CatalogPackage,
 ) -> Result<Outcome> {
+    let (id, _) = queue_package_install(jobs, data_dir, package, true)?;
+    operation_outcome(jobs, &id)
+}
+
+fn queue_package_install(
+    jobs: &Arc<Jobs>,
+    data_dir: &Path,
+    package: stackyard_core::CatalogPackage,
+    select_defaults: bool,
+) -> Result<(String, bool)> {
+    // Both the IPC dispatcher and background project creation can enqueue.
+    static STARTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _starting = STARTING.lock().expect("install start");
     if let Some(existing) = jobs.running_for(&package.id) {
-        return operation_outcome(jobs, &existing);
+        return Ok((existing, false));
     }
     mark_install_running(data_dir, &package.id)?;
     let (id, bytes, total, cancel) = jobs.start(package.id.clone());
@@ -627,26 +655,30 @@ fn start_package_install(
     let directory = data_dir.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let result = download_and_install(&directory, &package, &progress);
-        if result.is_ok() && (package.name == "mysql" || package.name == "postgres") {
+        if select_defaults
+            && result.is_ok()
+            && (package.name == "mysql" || package.name == "postgres")
+        {
             if let Err(err) =
                 select_for_project(&directory, stackyard_core::DEFAULT_PROJECT, &package.id)
             {
                 eprintln!("database server was installed but not selected: {err}");
             }
         }
-        if result.is_ok() && package.name == "node" {
+        if select_defaults && result.is_ok() && package.name == "node" {
             if let Err(err) = ensure_default_node_manager(&directory) {
                 eprintln!("pnpm was not installed with Node: {err}");
             }
         }
         let (state, message) = match &result {
             Ok(_) => ("succeeded".to_string(), "installed".to_string()),
+            Err(Error::Cancelled { .. }) => ("cancelled".to_string(), "cancelled".to_string()),
             Err(err) => ("failed".to_string(), err.to_string()),
         };
         let _ = mark_install_finished(&directory, &package.id, &state, &message);
         jobs_for_task.finish(&operation_id, result);
     });
-    operation_outcome(jobs, &id)
+    Ok((id, true))
 }
 
 fn operation_outcome(jobs: &Jobs, id: &str) -> Result<Outcome> {

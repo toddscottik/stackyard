@@ -28,6 +28,8 @@ Stage 9 adds schema-2 dependency scopes with independent runtime/tool selections
 
 Stage 10 adds remembered project tabs, shared Activity for installs and dependency tasks, and a service log tail with pause and resume. Windows native acceptance is recorded in [Stage 10 evidence](docs/evidence/S10-DESKTOP.md).
 
+Stage 11 adds **Create project** for Node HTTP, Next.js, Flask, and FastAPI. Choose a parent folder, runtime and dependency manager, then review the files, component downloads and commands. After generation, install dependencies and start the app from the same panel. The CLI can save a read-only JSON plan and apply the reviewed file later. See [starter versions](fixtures/starters/README.md).
+
 Development commands, from the repository root:
 
 ```text
@@ -39,6 +41,11 @@ cargo run -p stackyard-cli -- catalog
 cargo run -p stackyard-cli -- install node-24.22.2-windows-x64
 cargo run -p stackyard-cli -- use-existing python "C:\Python\Python312\python.exe"
 cargo run -p stackyard-cli -- import PATH
+cargo run -p stackyard-cli -- create recipes
+cargo run -p stackyard-cli -- create plan PARENT NAME node-http npm catalog:node-24.22.2-windows-x64 > PLAN.json
+cargo run -p stackyard-cli -- create apply PLAN.json --wait
+cargo run -p stackyard-cli -- create status TASK_ID
+cargo run -p stackyard-cli -- create cancel TASK_ID
 cargo run -p stackyard-cli -- start PROJECT
 cargo run -p stackyard-cli -- stop-project PROJECT
 cargo run -p stackyard-cli -- deps install PROJECT

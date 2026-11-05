@@ -4,6 +4,7 @@ import { Shell, type Section } from "./Shell";
 import { Projects } from "./panels/Projects";
 import { Components } from "./panels/Components";
 import { DatabasesScreen } from "./panels/Databases";
+import { CreateProject } from "./panels/CreateProject";
 import { Settings } from "./panels/Settings";
 import { Activity, useActivity } from "./panels/Activity";
 import { recalled, remember } from "./preferences";
@@ -29,6 +30,7 @@ export function App() {
   const [section, setSection] = useState<Section>("projects");
   const [selectedId, setSelectedId] = useState(() => recalled("project"));
   const selection = useRef(selectedId);
+  const [workspaceRequest, setWorkspaceRequest] = useState(0);
   const desktop = engineAvailable();
   const probe = useResource(api.probeStatus, { enabled: desktop, pollMs: 2500 });
   const { run, states } = useAction();
@@ -93,6 +95,7 @@ export function App() {
         <Projects
           projects={known ?? []}
           selected={selected}
+          workspaceRequest={workspaceRequest}
           onSelect={chooseProject}
           onImport={(project) => {
             updateProject(project);
@@ -109,6 +112,16 @@ export function App() {
           isDependencyBusy={activity.dependencyBusy}
           onActivity={() => setSection("activity")}
         />
+      </div>
+      <div hidden={section !== "create"}>
+        <CreateProject enabled={enabled} packages={packages.value ?? []} catalog={catalog.value ?? []}
+          projects={known ?? []} activity={activity} onGenerated={updateProject} onPackagesChanged={packages.refresh}
+          onOpenProject={(id, tab) => {
+            if (tab) remember(`project-tab.${id}`, tab);
+            chooseProject(id);
+            setWorkspaceRequest((current) => current + 1);
+            setSection("projects");
+          }} />
       </div>
       <div hidden={section !== "components"}>
         {enabled ? <ResourceNotice name="installed components" resource={packages} /> : null}

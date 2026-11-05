@@ -1,0 +1,6 @@
+{
+  "name": "__STACKYARD_NAME__",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@12.16.1"
+}

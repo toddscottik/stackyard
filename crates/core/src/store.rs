@@ -469,6 +469,42 @@ impl Store {
         Ok(())
     }
 
+    /// Register a generated project and its exact scope bindings together.
+    /// Reapplying an already registered project preserves subsequent selections.
+    pub fn register_created_project(
+        &self,
+        project: &ProjectRecord,
+        packages: &[PackageRecord],
+    ) -> Result<()> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|source| Error::database("begin project creation", source))?;
+        if let Some(existing) = self.get_project(&project.id)? {
+            if existing.root == project.root {
+                return Ok(());
+            }
+            return Err(Error::InvalidMessage(format!(
+                "Project ID {} is already registered at another path",
+                project.id
+            )));
+        }
+        self.insert_project(project)?;
+        for package in packages {
+            tx.execute(
+                "INSERT INTO scope_selections (project_id,scope_id,role,package_id) VALUES (?1,'app',?2,?3)",
+                params![project.id, package.name, package.id],
+            ).map_err(|source| Error::database("write created project selection", source))?;
+            tx.execute(
+                "INSERT INTO scope_selection_history (project_id,scope_id,role,package_id,previous_package_id,recorded_at) VALUES (?1,'app',?2,?3,NULL,?4)",
+                params![project.id, package.name, package.id, now_unix()],
+            ).map_err(|source| Error::database("record created project selection", source))?;
+        }
+        self.record_event("project_create", &project.id)?;
+        tx.commit()
+            .map_err(|source| Error::database("commit project creation", source))
+    }
+
     pub fn rename_project(&self, id: &str, name: &str) -> Result<()> {
         self.conn
             .execute(

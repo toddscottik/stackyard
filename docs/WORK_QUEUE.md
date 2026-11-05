@@ -23,14 +23,14 @@ All workers may read existing documentation. Runtime caches and test data belong
 
 ## Remaining work - 5 November 2026
 
-Stage 10 desktop acceptance passed on Windows. Stage 11.1 recipe contracts are next. Earlier target checks remain pending. The former broad Stage 9 is replaced by Stages 9–17. Detailed tasks, acceptance, ownership boundaries and handoffs are in DEVELOPMENT_PLAN.md.
+Stage 11 is implemented with partial Windows acceptance. Finish the remaining Windows checks after resolving the engine antivirus detection. Stage 12.1 read-only import detection follows. Earlier target checks remain pending. Detailed tasks, acceptance, ownership boundaries and handoffs are in DEVELOPMENT_PLAN.md.
 
 | ID | Status / owner | Bounded scope | Dependency |
 | --- | --- | --- | --- |
 | S8A-PHP | Windows accepted / coordinator; Mac pending | Windows PHP patches/Composer, FastCGI, live PHP-only rollout, verified memcached extension and guarded native server completed | Full native gates and actual engine catalog download/set-get passed; Mac checks stay pending |
 | S9-CONTRACTS | Done on Windows / coordinator; Mac pending | Tasks 9.1-9.4 implemented; accepted contract in decisions/0008-project-scopes.md; evidence in S9-INTEGRATE.md | Native scope isolation, migration/reopen, worker/TCP/HTTP/PHP readiness, pure preview and client boundaries accepted; repeat Mac checks later |
 | S10-DESKTOP | Done on Windows / coordinator | Tasks 10.1-10.4. Workspace, resources, activity and logs. | Native smoke and regression gates passed. Mac pending. See S10-DESKTOP.md. |
-| S11-CREATE | Ready for 11.1 / unassigned | Create runnable projects from the desktop; execute tasks 11.1–11.4 and its acceptance checks | Stages 9–10 and approved runtime/tool artifacts. |
+| S11-CREATE | Implemented / coordinator; acceptance pending | Versioned recipes, safe plan and apply, and four desktop starter flows | Node HTTP, Next.js and Flask passed on Windows. Finish FastAPI and the regression suite after antivirus review. Mac pending. See S11-CREATE.md. |
 | S12-IMPORT | Waiting / unassigned | Import applications and edit their configuration; execute tasks 12.1–12.4 and its acceptance checks | Stages 9–11. |
 | S13-COMPONENTS | Waiting / unassigned | Unify components, dependencies and PHP extensions; execute tasks 13.1–13.4 and its acceptance checks | Stages 8A and 9–12. |
 | S14-DATABASES | Waiting / unassigned | Complete project database workflows; execute tasks 14.1–14.4 and its acceptance checks | Stages 9–10 and 12; existing Stage 6 providers. |
@@ -104,3 +104,15 @@ Fixed locally / coordinator. `crates/engine/src/cache.rs` now synchronizes each 
 | 10.4 log tail | Luna worker | Core offset reads and desktop Logs panel |
 
 Reviewed on 6 November 2026. See [desktop acceptance](evidence/S10-DESKTOP.md). Stage 11.1 is ready on the accepted Windows baseline.
+
+## Stage 11 assignments
+
+| Slice | Owner | Write scope |
+| --- | --- | --- |
+| 11.1 templates | Luna worker | crates/core/src/recipes.rs and fixtures/starters/ |
+| 11.2 planning and generation | Sol medium worker | crates/core/src/create.rs |
+| 11.3–11.4 wizard | Luna worker | apps/desktop/src/panels/CreateProject.tsx and create-project.css |
+| Integration | Coordinator | Protocol, engine tasks, CLI, Tauri picker, App/API, acceptance and status |
+
+Reviewed on 6 November 2026. The remaining checks and the antivirus
+interruption are recorded in [Stage 11 evidence](evidence/S11-CREATE.md).

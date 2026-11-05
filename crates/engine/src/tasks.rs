@@ -103,6 +103,16 @@ impl TaskBoard {
         true
     }
 
+    pub fn progress(&self, id: &str, message: &str) {
+        let Some(id) = parse_id(id) else { return };
+        let mut guard = self.inner.lock().expect("tasks");
+        if let Some(task) = guard.entries.get_mut(&id) {
+            if task.state == "running" {
+                task.message = clip(message, 6_000);
+            }
+        }
+    }
+
     pub fn snapshot(&self, id: &str) -> Option<TaskSnapshot> {
         let id = parse_id(id)?;
         self.inner

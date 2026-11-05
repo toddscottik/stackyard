@@ -9,6 +9,36 @@ export type Status = {
 };
 
 export type CatalogItem = { id: string; name: string; version: string; target: string };
+export type RecipeInfo = {
+  id: string;
+  version: number;
+  title: string;
+  runtime: string;
+  managers: string[];
+  network: string;
+  hot_reload: string;
+  windows: string;
+  macos: string;
+};
+export type ComponentChoice = { kind: "installed" | "catalog"; id: string };
+export type CreateRequest = {
+  parent: string;
+  name: string;
+  recipe: string;
+  manager: string;
+  runtime: ComponentChoice;
+  tool: ComponentChoice | null;
+};
+export type CreatePlan = {
+  request: CreateRequest;
+  target: string;
+  fingerprint: string;
+  files: string[];
+  downloads: (CatalogItem & { url: string; sha256: string })[];
+  install_command: string[];
+  launch_command: string[];
+  notes: string[];
+};
 export type Installed = {
   id: string;
   name: string;
@@ -156,6 +186,11 @@ export type ProjectPreview = {
 };
 
 export const api = {
+  recipes: () => invoke<RecipeInfo[]>("list_recipes"),
+  pickProjectParent: () => invoke<string | null>("pick_project_parent"),
+  planCreate: (request: CreateRequest) => invoke<CreatePlan>("plan_create", { request }),
+  applyCreate: (plan: CreatePlan) => invoke<Task>("apply_create", { plan }),
+  recordCreateRuntime: (role: string, path: string) => invoke<string>("record_create_runtime", { role, path }),
   previewProject: (draft: PreviewRequest) => invoke<ProjectPreview>("preview_project", { draft }),
   selectScopePackage: (projectId: string, scopeId: string, packageId: string) => invoke<Project>("select_scope_package", { projectId, scopeId, packageId }),
   startDependencyScoped: (projectId: string, scopeId: string, action: string, packageName = "") => invoke<Task>("start_dependency_scoped", { projectId, scopeId, action, package: packageName }),

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 
 const sections = {
   projects: "Projects",
+  create: "Create project",
   components: "Components",
   databases: "Databases",
   activity: "Activity",

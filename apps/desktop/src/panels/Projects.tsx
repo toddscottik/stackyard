@@ -55,13 +55,14 @@ type WorkspaceProps = {
 type ProjectsProps = Omit<WorkspaceProps, "project" | "dependencyBusy"> & {
   projects: Project[];
   selected: Project | null;
+  workspaceRequest: number;
   onSelect: (id: string) => void;
   onImport: (project: Project) => void;
   isDependencyBusy: (id: string) => boolean;
 };
 
 export function Projects({
-  projects, selected, onSelect, onImport, isDependencyBusy, ...workspace
+  projects, selected, workspaceRequest, onSelect, onImport, isDependencyBusy, ...workspace
 }: ProjectsProps) {
   const [path, setPath] = useState("");
   const { states, run } = useAction();
@@ -118,7 +119,7 @@ export function Projects({
         </section>
         <section className="pane detail-pane" aria-labelledby="detail-heading">
           <button type="button" className="btn back" onClick={() => onSelect("")}>All projects</button>
-          {selected ? <Workspace key={selected.id} project={selected} {...workspace}
+          {selected ? <Workspace key={`${selected.id}:${workspaceRequest}`} project={selected} {...workspace}
             dependencyBusy={isDependencyBusy(selected.id)} lifecycle={states[lifecycleKey]}
             onLifecycle={(invoke) => run(lifecycleKey, async () => {
               try { workspace.onProject(await invoke(selected.id)); }

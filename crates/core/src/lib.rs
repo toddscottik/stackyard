@@ -7,6 +7,7 @@ mod apache;
 mod archive;
 mod catalog;
 mod client;
+pub mod create;
 mod database;
 mod deps;
 mod diagnostics;
@@ -21,6 +22,7 @@ pub mod php_project;
 pub mod preview;
 mod project;
 mod protocol;
+pub mod recipes;
 pub mod scopes;
 mod store;
 mod transport;
@@ -48,7 +50,8 @@ pub use diagnostics::{export_diagnostics, LIMITATIONS};
 pub use error::{Error, Result};
 pub use install::{
     adopt_existing, discover_candidates, download_and_install, ensure_default_node_manager,
-    install_reader, probe_tool, remove_package, select_for_project, Progress, DEFAULT_PROJECT,
+    install_reader, probe_tool, record_existing_runtime, remove_package, select_for_project,
+    Progress, DEFAULT_PROJECT,
 };
 pub use logs::{
     append_log, log_tail, read_log, read_log_follow, service_log_path, FollowLogChunk, LogChunk,

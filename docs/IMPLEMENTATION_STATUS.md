@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 6 November 2026 (Stage 10 Windows desktop acceptance).
+Updated: 6 November 2026 (Stage 11 implementation and partial Windows acceptance).
 
 ## Completed preparation
 
@@ -28,8 +28,8 @@ Updated: 6 November 2026 (Stage 10 Windows desktop acceptance).
 | 8: personal release | Partial. Linux x86_64 diagnostics, setup notes, and fixture smoke passed on 1 November 2026. Windows 10 and macOS 14.5 acceptance, the user's projects, and sleep/wake are open | Run the acceptance list on Windows 10 x64 and the M1 Pro running macOS 14.5. Measure startup there with an editor and browser. Do not treat the Linux sample as that gate |
 | 8A: PHP/extensions | Windows deliverables/native acceptance completed 4 November: PHP patches/Composer, FastCGI, live profiles, memcached extension and guarded native server. Mac pending | Repeat native checks on macOS 14.5 when available; continue independent Stage 9 now |
 | 9: Define project scopes and launch contracts | Windows implementation/acceptance complete 5 November: schema 2 scopes, migration 8, typed readiness, pure preview and client adapters. Mac pending | Repeat native scope/readiness checks on macOS 14.5 when available; Stage 10 desktop workspace is ready to begin |
-| 10: Build the shared desktop workspace and activity layer | Done on Windows. Remembered workspace, resource ownership, Activity and log tail verified. Mac pending. | Start Stage 11.1 recipe contracts. Run the native Mac smoke when available. |
-| 11: Create runnable projects from the desktop | Not started | Create project produces working source and a runnable application for Node HTTP, Next.js, Flask, and FastAPI. |
+| 10: Build the shared desktop workspace and activity layer | Done on Windows. Remembered workspace, resource ownership, Activity and log tail verified. Mac pending. | Run the native Mac smoke when available. |
+| 11: Create runnable projects from the desktop | Implemented. Node HTTP, Next.js, and Flask passed Windows desktop checks. The final run stopped after the engine antivirus alert. Mac pending. | Resolve the detection and verify revised FastAPI reload and lifecycle. Rerun the Windows workspace regression suite. |
 | 12: Import applications and edit their configuration | Not started | Existing applications can be added without hand-writing stackyard.toml, and their configuration can be changed safely afterward. |
 | 13: Unify components, dependencies and PHP extensions | Not started | Global Components and each project's Stack expose the same working runtime/tool/server and extension capabilities. |
 | 14: Complete project database workflows | Not started | A project can provision or attach a database and use its credentials without manually finding secret files. |
@@ -218,3 +218,17 @@ The desktop uses separate shell and feature panels, remembered project and tab s
 Windows 10 x64 native acceptance verified import, start, dependency cancellation and retry across navigation, disconnect and reconnect, rotated and final crash logs, restart and stop, SQLite binding, settings and keyboard tabs. Workspace tests reported 133 passes with native gates enabled. Three desktop invoke tests, strict Clippy and the production desktop build passed. See [Stage 10 evidence](evidence/S10-DESKTOP.md).
 
 Stage 11.1 recipe contracts are next. Native macOS acceptance remains pending.
+
+## Stage 11 implementation — 6 November 2026
+
+The desktop and CLI share a read-only recipe plan and an engine apply task.
+Apply checks the reviewed inputs, stages source beside its destination,
+publishes without replacing existing files, and registers the project and
+scope selections together. A matching creation receipt supports exact retry
+after publication. The desktop then installs dependencies and starts the
+generated loopback service.
+
+The Windows smoke passed the Node HTTP, Next.js and Flask lifecycle flows.
+FastAPI served successfully before its original reload mechanism hung.
+The revised launcher and remaining Windows regression checks await resolution
+of the antivirus alert. [Stage 11 acceptance](evidence/S11-CREATE.md)
