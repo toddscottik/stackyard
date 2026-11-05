@@ -149,6 +149,13 @@ pub enum Command {
         service_id: String,
         offset: u64,
     },
+    FollowLogs {
+        project_id: String,
+        service_id: String,
+        offset: u64,
+        generation: Option<String>,
+    },
+    ListActivity,
     Exec {
         project_id: String,
         service_id: String,
@@ -343,6 +350,17 @@ pub enum Outcome {
         offset: u64,
         next_offset: u64,
         text: String,
+    },
+    FollowLogs {
+        offset: u64,
+        next_offset: u64,
+        text: String,
+        generation: String,
+        reset: bool,
+    },
+    Activity {
+        operations: Vec<Outcome>,
+        tasks: Vec<Outcome>,
     },
     Task {
         id: String,

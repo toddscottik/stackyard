@@ -958,6 +958,12 @@ fn print_help() {
 
 fn print_outcome(outcome: &Outcome) {
     match outcome {
+        Outcome::Activity { operations, tasks } => {
+            for item in operations.iter().chain(tasks) {
+                print_outcome(item);
+            }
+        }
+        Outcome::FollowLogs { text, .. } => print!("{text}"),
         Outcome::ProjectPreview { preview } => println!(
             "{}",
             serde_json::to_string_pretty(preview)

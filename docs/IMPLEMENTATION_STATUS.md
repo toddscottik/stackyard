@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 5 November 2026 (Stage 9 Windows implementation and acceptance; historical execution retains its dates).
+Updated: 6 November 2026 (Stage 10 Windows desktop acceptance).
 
 ## Completed preparation
 
@@ -28,7 +28,7 @@ Updated: 5 November 2026 (Stage 9 Windows implementation and acceptance; histori
 | 8: personal release | Partial. Linux x86_64 diagnostics, setup notes, and fixture smoke passed on 1 November 2026. Windows 10 and macOS 14.5 acceptance, the user's projects, and sleep/wake are open | Run the acceptance list on Windows 10 x64 and the M1 Pro running macOS 14.5. Measure startup there with an editor and browser. Do not treat the Linux sample as that gate |
 | 8A: PHP/extensions | Windows deliverables/native acceptance completed 4 November: PHP patches/Composer, FastCGI, live profiles, memcached extension and guarded native server. Mac pending | Repeat native checks on macOS 14.5 when available; continue independent Stage 9 now |
 | 9: Define project scopes and launch contracts | Windows implementation/acceptance complete 5 November: schema 2 scopes, migration 8, typed readiness, pure preview and client adapters. Mac pending | Repeat native scope/readiness checks on macOS 14.5 when available; Stage 10 desktop workspace is ready to begin |
-| 10: Build the shared desktop workspace and activity layer | Not started | A maintainable desktop shell that preserves existing actions and can host the new workflows. |
+| 10: Build the shared desktop workspace and activity layer | Done on Windows. Remembered workspace, resource ownership, Activity and log tail verified. Mac pending. | Start Stage 11.1 recipe contracts. Run the native Mac smoke when available. |
 | 11: Create runnable projects from the desktop | Not started | Create project produces working source and a runnable application for Node HTTP, Next.js, Flask, and FastAPI. |
 | 12: Import applications and edit their configuration | Not started | Existing applications can be added without hand-writing stackyard.toml, and their configuration can be changed safely afterward. |
 | 13: Unify components, dependencies and PHP extensions | Not started | Global Components and each project's Stack expose the same working runtime/tool/server and extension capabilities. |
@@ -209,3 +209,12 @@ Validation on Windows 10 Pro 10.0.19045 x64, Rust 1.99.1: cargo test --workspace
 Workers used fresh bounded contexts: two Luna workers for parser/readiness, one Sol at medium reasoning for scope execution. The coordinator owned shared interfaces, migrations, preview, adapters, review and status. No new package downloads, global PATH, service, trust or hosts changes were required. Independent CI resolver-test changes were preserved separately.
 
 Next task: Stage 10.1, split the desktop shell/navigation and feature panels while preserving existing actions; then resource/activity ownership and Stage 10 acceptance. Mac Stage 9 checks can run independently when the user's machine is available.
+
+
+## Stage 10 coordinator handoff - 6 November 2026
+
+The desktop uses separate shell and feature panels, remembered project and tab selection, resource refresh ownership, unified Activity and a bounded log tail. Existing project, package, site, database and settings actions are reachable from the workspace.
+
+Windows 10 x64 native acceptance verified import, start, dependency cancellation and retry across navigation, disconnect and reconnect, rotated and final crash logs, restart and stop, SQLite binding, settings and keyboard tabs. Workspace tests reported 133 passes with native gates enabled. Three desktop invoke tests, strict Clippy and the production desktop build passed. See [Stage 10 evidence](evidence/S10-DESKTOP.md).
+
+Stage 11.1 recipe contracts are next. Native macOS acceptance remains pending.

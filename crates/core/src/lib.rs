@@ -50,7 +50,9 @@ pub use install::{
     adopt_existing, discover_candidates, download_and_install, ensure_default_node_manager,
     install_reader, probe_tool, remove_package, select_for_project, Progress, DEFAULT_PROJECT,
 };
-pub use logs::{append_log, log_tail, read_log, service_log_path, LogChunk};
+pub use logs::{
+    append_log, log_tail, read_log, read_log_follow, service_log_path, FollowLogChunk, LogChunk,
+};
 pub use manifest::{
     load_manifest, parse_manifest, start_order, EndpointProtocol, EndpointSpec,
     EnvironmentOwnership, ManagerKind, Manifest, ReadinessSpec, RestartPolicy, RuntimeRole,

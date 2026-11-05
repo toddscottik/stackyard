@@ -26,6 +26,8 @@ Stage 8A Windows providers include publisher-checked PHP 8.5.11/8.5.12-1, Compos
 
 Stage 9 adds schema-2 dependency scopes with independent runtime/tool selections and Python environments, optional HTTP/TCP/FastCGI endpoints, explicit readiness, and read-only draft preview. Existing schema-1 manifests are normalized without rewriting them or moving their environments. See [the schema/API contract](docs/decisions/0008-project-scopes.md) and [Stage 9 acceptance](docs/evidence/S9-INTEGRATE.md). Desktop workflow changes begin in Stage 10.
 
+Stage 10 adds remembered project tabs, shared Activity for installs and dependency tasks, and a service log tail with pause and resume. Windows native acceptance is recorded in [Stage 10 evidence](docs/evidence/S10-DESKTOP.md).
+
 Development commands, from the repository root:
 
 ```text
@@ -62,6 +64,7 @@ cargo run -p stackyard-cli -- cache list
 cargo run -p stackyard-cli -- cache stop INSTANCE
 pnpm --dir apps/desktop install --frozen-lockfile
 pnpm --dir apps/desktop run dev
+pnpm --dir apps/desktop test
 pnpm --dir apps/desktop run build
 cargo clippy --workspace --all-targets -- -D warnings
 ```

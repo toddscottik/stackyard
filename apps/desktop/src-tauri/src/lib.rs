@@ -10,6 +10,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             commands::engine_status,
+            commands::probe_engine,
             commands::engine_setting,
             commands::put_setting,
             commands::list_packages,
@@ -33,6 +34,8 @@ pub fn run() {
             commands::restart_project,
             commands::cancel_start,
             commands::read_logs,
+            commands::follow_logs,
+            commands::list_activity,
             commands::start_dependency,
             commands::task_status,
             commands::cancel_task,

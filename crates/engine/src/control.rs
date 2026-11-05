@@ -36,6 +36,30 @@ pub fn read_service_log(
     })
 }
 
+pub fn follow_service_log(
+    data_dir: &Path,
+    project_id: &str,
+    service_id: &str,
+    offset: u64,
+    generation: Option<&str>,
+) -> Result<Outcome> {
+    if !valid_id(project_id) || !valid_id(service_id) {
+        return Err(Error::InvalidMessage(
+            "project and service ids must be lowercase identifiers".to_string(),
+        ));
+    }
+    let path = service_log_path(data_dir, project_id, service_id);
+    // JSON escaping can multiply log bytes by six. Leave room for the envelope.
+    let chunk = stackyard_core::read_log_follow(&path, offset, generation, 8_000)?;
+    Ok(Outcome::FollowLogs {
+        offset: chunk.offset,
+        next_offset: chunk.next_offset,
+        text: chunk.text,
+        generation: chunk.generation,
+        reset: chunk.reset,
+    })
+}
+
 pub fn start_exec(
     tasks: &Arc<TaskBoard>,
     data_dir: &Path,

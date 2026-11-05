@@ -701,3 +701,43 @@ select.input {
     transition-duration: 0.01ms !important;
   }
 }
+
+.workspace-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  margin: 14px 0;
+  padding: 2px 2px 0;
+}
+
+.workspace-tabs button {
+  flex: 0 0 auto;
+  min-height: var(--control-height);
+  padding: 5px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.workspace-tabs button[aria-selected="true"] {
+  border-bottom-color: var(--text);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.workspace-tabs button:hover {
+  background: var(--raised);
+}
+
+.action-error {
+  color: var(--negative);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .workspace-tabs button {
+    min-height: 44px;
+  }
+}

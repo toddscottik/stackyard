@@ -163,6 +163,10 @@ export const api = {
   phpApplyProfileScoped: (projectId: string, scopeId: string, extensions: string[]) => invoke<PhpProject>("php_apply_profile_scoped", { projectId, scopeId, extensions }),
   phpInstallExtensionScoped: (projectId: string, scopeId: string, catalogId: string) => invoke<unknown>("php_install_extension_scoped", { projectId, scopeId, catalogId }),
   status: () => invoke<Status>("engine_status"),
+  probeStatus: () => invoke<Status>("probe_engine"),
+  activity: () => invoke<{ operations: Operation[]; tasks: Task[] }>("list_activity"),
+  followLogs: (projectId: string, serviceId: string, offset: number, generation: string | null) =>
+    invoke<Logs & { generation: string; reset: boolean }>("follow_logs", { projectId, serviceId, offset, generation }),
   setting: (key: string) => invoke<string | null>("engine_setting", { key }),
   putSetting: (key: string, value: string) => invoke<void>("put_setting", { key, value }),
   packages: () => invoke<Installed[]>("list_packages"),

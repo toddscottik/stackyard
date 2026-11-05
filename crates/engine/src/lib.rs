@@ -428,6 +428,22 @@ async fn dispatch(
             service_id,
             offset,
         } => control::read_service_log(data_dir, project_id, service_id, *offset),
+        Command::FollowLogs {
+            project_id,
+            service_id,
+            offset,
+            generation,
+        } => control::follow_service_log(
+            data_dir,
+            project_id,
+            service_id,
+            *offset,
+            generation.as_deref(),
+        ),
+        Command::ListActivity => Ok(Outcome::Activity {
+            operations: jobs.list(),
+            tasks: tasks.list(),
+        }),
         Command::Exec {
             project_id,
             service_id,

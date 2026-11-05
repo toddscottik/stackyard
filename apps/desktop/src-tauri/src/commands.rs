@@ -82,6 +82,12 @@ async fn call(command: Command) -> Result<Outcome, String> {
     call_within(command, Duration::from_secs(5)).await
 }
 
+async fn query(command: Command) -> Result<Outcome, String> {
+    roundtrip_within(&default_data_dir(), command, Duration::from_secs(5))
+        .await
+        .map_err(|err| err.to_string())
+}
+
 async fn cache_outcome(
     command: Command,
 ) -> Result<Vec<stackyard_core::CacheInstanceRecord>, String> {
@@ -323,7 +329,16 @@ fn one_project(outcome: Outcome) -> Result<ProjectView, String> {
 
 #[tauri::command]
 pub async fn engine_status() -> Result<StatusView, String> {
-    match call(Command::Status).await? {
+    status_view(call(Command::Status).await?)
+}
+
+#[tauri::command]
+pub async fn probe_engine() -> Result<StatusView, String> {
+    status_view(query(Command::Status).await?)
+}
+
+fn status_view(outcome: Outcome) -> Result<StatusView, String> {
+    match outcome {
         Outcome::Status {
             pid,
             data_dir,
@@ -343,7 +358,7 @@ pub async fn engine_status() -> Result<StatusView, String> {
 
 #[tauri::command]
 pub async fn engine_setting(key: String) -> Result<Option<String>, String> {
-    match call(Command::GetSetting { key }).await? {
+    match query(Command::GetSetting { key }).await? {
         Outcome::Setting { value, .. } => Ok(value),
         other => Err(format!("unexpected engine reply: {other:?}")),
     }
@@ -356,7 +371,7 @@ pub async fn put_setting(key: String, value: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn list_packages() -> Result<Vec<PackageView>, String> {
-    match call(Command::ListPackages).await? {
+    match query(Command::ListPackages).await? {
         Outcome::Packages { packages } => Ok(packages
             .into_iter()
             .map(|package| PackageView {
@@ -374,7 +389,7 @@ pub async fn list_packages() -> Result<Vec<PackageView>, String> {
 
 #[tauri::command]
 pub async fn list_catalog() -> Result<Vec<CatalogView>, String> {
-    match call(Command::ListCatalog).await? {
+    match query(Command::ListCatalog).await? {
         Outcome::Catalog { packages } => Ok(packages
             .into_iter()
             .map(|package| CatalogView {
@@ -395,7 +410,7 @@ pub async fn start_install(catalog_id: String) -> Result<OperationView, String> 
 
 #[tauri::command]
 pub async fn install_status(operation_id: String) -> Result<OperationView, String> {
-    operation(call(Command::InstallStatus { operation_id }).await?)
+    operation(query(Command::InstallStatus { operation_id }).await?)
 }
 
 #[tauri::command]
@@ -450,7 +465,7 @@ pub async fn select_package(project_id: String, package_id: String) -> Result<()
 
 #[tauri::command]
 pub async fn list_projects() -> Result<Vec<ProjectView>, String> {
-    match call(Command::ListProjects).await? {
+    match query(Command::ListProjects).await? {
         Outcome::Projects { projects } => Ok(projects.into_iter().map(project_view).collect()),
         other => Err(format!("unexpected engine reply: {other:?}")),
     }
@@ -549,7 +564,7 @@ pub async fn start_dependency(
 
 #[tauri::command]
 pub async fn task_status(operation_id: String) -> Result<TaskView, String> {
-    task(call(Command::DepStatus { operation_id }).await?)
+    task(query(Command::DepStatus { operation_id }).await?)
 }
 
 #[tauri::command]
@@ -569,6 +584,68 @@ fn task(outcome: Outcome) -> Result<TaskView, String> {
             label,
             state,
             message,
+        }),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[derive(Serialize)]
+pub struct ActivityView {
+    operations: Vec<OperationView>,
+    tasks: Vec<TaskView>,
+}
+
+#[tauri::command]
+pub async fn list_activity() -> Result<ActivityView, String> {
+    match query(Command::ListActivity).await? {
+        Outcome::Activity { operations, tasks } => Ok(ActivityView {
+            operations: operations
+                .into_iter()
+                .map(operation)
+                .collect::<Result<_, _>>()?,
+            tasks: tasks.into_iter().map(task).collect::<Result<_, _>>()?,
+        }),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FollowLogView {
+    offset: u64,
+    next_offset: u64,
+    text: String,
+    generation: String,
+    reset: bool,
+}
+
+#[tauri::command]
+pub async fn follow_logs(
+    project_id: String,
+    service_id: String,
+    offset: u64,
+    generation: Option<String>,
+) -> Result<FollowLogView, String> {
+    match query(Command::FollowLogs {
+        project_id,
+        service_id,
+        offset,
+        generation,
+    })
+    .await?
+    {
+        Outcome::FollowLogs {
+            offset,
+            next_offset,
+            text,
+            generation,
+            reset,
+        } => Ok(FollowLogView {
+            offset,
+            next_offset,
+            text,
+            generation,
+            reset,
         }),
         other => Err(format!("unexpected engine reply: {other:?}")),
     }
@@ -695,7 +772,7 @@ fn front_view(outcome: Outcome) -> Result<FrontView, String> {
 
 #[tauri::command]
 pub async fn front_status() -> Result<FrontView, String> {
-    front_view(call(Command::FrontStatus).await?)
+    front_view(query(Command::FrontStatus).await?)
 }
 
 #[tauri::command]
@@ -800,7 +877,7 @@ fn databases_view(outcome: Outcome) -> Result<DatabasesView, String> {
 
 #[tauri::command]
 pub async fn databases_status() -> Result<DatabasesView, String> {
-    databases_view(call(Command::DbList).await?)
+    databases_view(query(Command::DbList).await?)
 }
 
 #[tauri::command]

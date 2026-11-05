@@ -8,6 +8,7 @@
     "vite:dev": "vite",
     "dev": "cargo build -p stackyard-engine --manifest-path ../../Cargo.toml && tauri dev",
     "build": "tsc --noEmit && vite build",
+    "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

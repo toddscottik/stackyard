@@ -23,14 +23,14 @@ All workers may read existing documentation. Runtime caches and test data belong
 
 ## Remaining work - 5 November 2026
 
-Stage 9 Windows contracts are accepted; Stage 10 is next. Earlier pending target checks are retained. The former broad Stage 9 is replaced by Stages 9–17. Detailed tasks, acceptance, ownership boundaries and handoffs are in DEVELOPMENT_PLAN.md.
+Stage 10 desktop acceptance passed on Windows. Stage 11.1 recipe contracts are next. Earlier target checks remain pending. The former broad Stage 9 is replaced by Stages 9–17. Detailed tasks, acceptance, ownership boundaries and handoffs are in DEVELOPMENT_PLAN.md.
 
 | ID | Status / owner | Bounded scope | Dependency |
 | --- | --- | --- | --- |
 | S8A-PHP | Windows accepted / coordinator; Mac pending | Windows PHP patches/Composer, FastCGI, live PHP-only rollout, verified memcached extension and guarded native server completed | Full native gates and actual engine catalog download/set-get passed; Mac checks stay pending |
 | S9-CONTRACTS | Done on Windows / coordinator; Mac pending | Tasks 9.1-9.4 implemented; accepted contract in decisions/0008-project-scopes.md; evidence in S9-INTEGRATE.md | Native scope isolation, migration/reopen, worker/TCP/HTTP/PHP readiness, pure preview and client boundaries accepted; repeat Mac checks later |
-| S10-DESKTOP | Ready / unassigned | Build the shared desktop workspace and activity layer; execute tasks 10.1–10.4 and its acceptance checks | Stage 9 contracts. |
-| S11-CREATE | Waiting / unassigned | Create runnable projects from the desktop; execute tasks 11.1–11.4 and its acceptance checks | Stages 9–10 and approved runtime/tool artifacts. |
+| S10-DESKTOP | Done on Windows / coordinator | Tasks 10.1-10.4. Workspace, resources, activity and logs. | Native smoke and regression gates passed. Mac pending. See S10-DESKTOP.md. |
+| S11-CREATE | Ready for 11.1 / unassigned | Create runnable projects from the desktop; execute tasks 11.1–11.4 and its acceptance checks | Stages 9–10 and approved runtime/tool artifacts. |
 | S12-IMPORT | Waiting / unassigned | Import applications and edit their configuration; execute tasks 12.1–12.4 and its acceptance checks | Stages 9–11. |
 | S13-COMPONENTS | Waiting / unassigned | Unify components, dependencies and PHP extensions; execute tasks 13.1–13.4 and its acceptance checks | Stages 8A and 9–12. |
 | S14-DATABASES | Waiting / unassigned | Complete project database workflows; execute tasks 14.1–14.4 and its acceptance checks | Stages 9–10 and 12; existing Stage 6 providers. |
@@ -92,3 +92,15 @@ Stage 9 completed Windows review on 5 November 2026. Coordinator evidence: S9-IN
 ## CI relay test synchronization — 5 November 2026
 
 Fixed locally / coordinator. `crates/engine/src/cache.rs` now synchronizes each backend connection before testing the 32-client limit, checks exact client closure, and separates active-connection shutdown from idle-listener rebinding. Production behavior and the two-second shutdown limit are unchanged. The original deadline failure reproduced locally under concurrency; final stress passed 20/20 runs with four concurrent processes. Windows workspace tests (74 core/14 engine), workspace Clippy, formatting and whitespace checks passed. Evidence and reproduction: [CI-RELAY](evidence/CI-RELAY.md). Next: push and verify new Windows/macOS CI runs; native Mac acceptance remains pending.
+
+
+## Stage 10 assignments and acceptance
+
+| Task | Owner | Scope |
+| --- | --- | --- |
+| 10.1 feature panels | Luna worker | Components, Databases and Settings extraction with install delegation |
+| 10.2 shell and resources | Coordinator | Remembered selection, resource ownership, lifecycle, integration and verification |
+| 10.3 activity | Sol medium worker | Engine job/task boards and desktop Activity controller |
+| 10.4 log tail | Luna worker | Core offset reads and desktop Logs panel |
+
+Reviewed on 6 November 2026. See [desktop acceptance](evidence/S10-DESKTOP.md). Stage 11.1 is ready on the accepted Windows baseline.
