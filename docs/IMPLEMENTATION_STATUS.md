@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 6 November 2026 (Stage 11 implementation and partial Windows acceptance).
+Updated: 6 November 2026 (Stage 11 Windows desktop acceptance).
 
 ## Completed preparation
 
@@ -29,7 +29,7 @@ Updated: 6 November 2026 (Stage 11 implementation and partial Windows acceptance
 | 8A: PHP/extensions | Windows deliverables/native acceptance completed 4 November: PHP patches/Composer, FastCGI, live profiles, memcached extension and guarded native server. Mac pending | Repeat native checks on macOS 14.5 when available; continue independent Stage 9 now |
 | 9: Define project scopes and launch contracts | Windows implementation/acceptance complete 5 November: schema 2 scopes, migration 8, typed readiness, pure preview and client adapters. Mac pending | Repeat native scope/readiness checks on macOS 14.5 when available; Stage 10 desktop workspace is ready to begin |
 | 10: Build the shared desktop workspace and activity layer | Done on Windows. Remembered workspace, resource ownership, Activity and log tail verified. Mac pending. | Run the native Mac smoke when available. |
-| 11: Create runnable projects from the desktop | Implemented. Node HTTP, Next.js, and Flask passed Windows desktop checks. The final run stopped after the engine antivirus alert. Mac pending. | Resolve the detection and verify revised FastAPI reload and lifecycle. Rerun the Windows workspace regression suite. |
+| 11: Create runnable projects from the desktop | Done on Windows. All four desktop starter flows passed, including FastAPI with managed CPython and reload. Mac pending. | Begin Stage 12.1 read-only import detection. Repeat desktop acceptance on macOS 14.5 arm64 when available. |
 | 12: Import applications and edit their configuration | Not started | Existing applications can be added without hand-writing stackyard.toml, and their configuration can be changed safely afterward. |
 | 13: Unify components, dependencies and PHP extensions | Not started | Global Components and each project's Stack expose the same working runtime/tool/server and extension capabilities. |
 | 14: Complete project database workflows | Not started | A project can provision or attach a database and use its credentials without manually finding secret files. |
@@ -228,7 +228,9 @@ scope selections together. A matching creation receipt supports exact retry
 after publication. The desktop then installs dependencies and starts the
 generated loopback service.
 
-The Windows smoke passed the Node HTTP, Next.js and Flask lifecycle flows.
-FastAPI served successfully before its original reload mechanism hung.
-The revised launcher and remaining Windows regression checks await resolution
-of the antivirus alert. [Stage 11 acceptance](evidence/S11-CREATE.md)
+All four Windows starters passed generation, dependency installation, HTTP,
+logs, reload, restart and stop. Flask used an existing Python installation
+and FastAPI downloaded and verified managed CPython. Managed downloads retry
+one transient connection or response failure within the same Activity
+operation. Stage 12.1 read-only import detection is next. Native macOS
+desktop acceptance remains pending. [Stage 11 acceptance](evidence/S11-CREATE.md)

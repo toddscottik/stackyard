@@ -15,6 +15,6 @@ The managed Node 24.22.2, Python 3.12.16, and pnpm 12.16.1 catalog artifacts
 have Windows x64 evidence in [`S0-WIN-RUNTIMES`](../../docs/evidence/S0-WIN-RUNTIMES.md); Node,
 Python, and pnpm have macOS 14.5 arm64 payload evidence in
 [`S0-MAC-PACKAGES`](../../docs/evidence/S0-MAC-PACKAGES.md).
-Windows desktop checks passed for Node HTTP with npm, Next.js with pnpm, and
-Flask with pip. FastAPI's revised reload launcher and macOS starter checks
-remain pending. See [Stage 11 evidence](../../docs/evidence/S11-CREATE.md).
+Windows desktop checks passed for Node HTTP with npm, Next.js with pnpm,
+Flask with pip, and FastAPI with pip. macOS starter checks remain pending.
+See [Stage 11 evidence](../../docs/evidence/S11-CREATE.md).

@@ -244,6 +244,8 @@ fn set_extracted_mode<R: Read>(entry: &tar::Entry<'_, R>, target: &Path) -> Resu
     Ok(())
 }
 
+pub(crate) const READ_DOWNLOAD: &str = "read download";
+
 pub fn read_to_digest<R: Read>(
     mut reader: R,
     output: &Path,
@@ -263,7 +265,7 @@ pub fn read_to_digest<R: Read>(
         }
         let read = reader
             .read(&mut buffer)
-            .map_err(|source| Error::io("read download", source))?;
+            .map_err(|source| Error::io(READ_DOWNLOAD, source))?;
         if read == 0 {
             break;
         }

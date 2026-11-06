@@ -1,13 +1,14 @@
 use std::collections::HashSet;
+use std::error::Error as _;
 use std::fs;
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use crate::archive::{extract, read_to_digest};
+use crate::archive::{extract, read_to_digest, READ_DOWNLOAD};
 use crate::catalog::{require_host, CatalogPackage};
 use crate::error::{Error, Result};
 use crate::store::{PackageRecord, Store};
@@ -17,16 +18,18 @@ pub const DEFAULT_PROJECT: &str = "default";
 struct InstallClaim((PathBuf, String));
 
 impl InstallClaim {
-    fn acquire(data_dir: &Path, id: &str) -> Result<Self> {
-        let key = (data_dir.to_path_buf(), id.to_string());
+    fn acquire(data_dir: &Path, package: &CatalogPackage) -> Result<Self> {
+        require_host(package)?;
+        validate_id(&package.id)?;
+        let key = (data_dir.to_path_buf(), package.id.clone());
         if !install_claims()
             .lock()
             .expect("install claims")
             .insert(key.clone())
         {
-            return Err(Error::OperationFailed(format!(
-                "Package {id} is already being installed"
-            )));
+            return Err(Error::InstallInProgress {
+                id: package.id.clone(),
+            });
         }
         Ok(Self(key))
     }
@@ -79,9 +82,16 @@ pub fn install_reader<R: Read>(
     reader: R,
     progress: &Progress,
 ) -> Result<PackageRecord> {
-    require_host(package)?;
-    validate_id(&package.id)?;
-    let _claim = InstallClaim::acquire(data_dir, &package.id)?;
+    let _claim = InstallClaim::acquire(data_dir, package)?;
+    install_payload(data_dir, package, reader, progress)
+}
+
+fn install_payload<R: Read>(
+    data_dir: &Path,
+    package: &CatalogPackage,
+    reader: R,
+    progress: &Progress,
+) -> Result<PackageRecord> {
     if progress.cancelled() {
         return Err(Error::Cancelled {
             id: package.id.clone(),
@@ -228,28 +238,88 @@ pub fn download_and_install(
     package: &CatalogPackage,
     progress: &Progress,
 ) -> Result<PackageRecord> {
-    require_host(package)?;
-    if progress.cancelled() {
-        return Err(Error::Cancelled {
-            id: package.id.clone(),
-        });
-    }
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(30))
-        .timeout_read(Duration::from_secs(120))
+        .timeout_read(Duration::from_secs(45))
         .build();
-    let response = agent
-        .get(&package.url)
-        .set("user-agent", "stackyard/0.1")
-        .call()
-        .map_err(|err| Error::InvalidMessage(format!("download {}: {err}", package.url)))?;
-    if let Some(total) = response
-        .header("Content-Length")
-        .and_then(|value| value.trim().parse::<u64>().ok())
-    {
-        progress.total.store(total, Ordering::Relaxed);
+    download_with_agent(data_dir, package, progress, &agent)
+}
+
+fn download_with_agent(
+    data_dir: &Path,
+    package: &CatalogPackage,
+    progress: &Progress,
+    agent: &ureq::Agent,
+) -> Result<PackageRecord> {
+    let _claim = InstallClaim::acquire(data_dir, package)?;
+    const ATTEMPTS: u32 = 2;
+    for attempt in 1..=ATTEMPTS {
+        if progress.cancelled() {
+            return Err(Error::Cancelled {
+                id: package.id.clone(),
+            });
+        }
+        progress.bytes.store(0, Ordering::Relaxed);
+        progress.total.store(0, Ordering::Relaxed);
+        let (error, retry) = match agent
+            .get(&package.url)
+            .set("user-agent", "stackyard/0.1")
+            .call()
+        {
+            Ok(response) => {
+                let total = response
+                    .header("Content-Length")
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+                    .unwrap_or(0);
+                progress.total.store(total, Ordering::Relaxed);
+                match install_payload(data_dir, package, response.into_reader(), progress) {
+                    Ok(record) => return Ok(record),
+                    Err(Error::Io {
+                        context: READ_DOWNLOAD,
+                        source,
+                    }) if transient_io(&source) => (source.to_string(), true),
+                    Err(error) => return Err(error),
+                }
+            }
+            Err(ureq::Error::Status(status, _)) => (
+                format!("HTTP {status}"),
+                matches!(status, 408 | 502 | 503 | 504),
+            ),
+            Err(ureq::Error::Transport(error)) => {
+                let retry = error
+                    .source()
+                    .and_then(|source| source.downcast_ref::<io::Error>())
+                    .is_some_and(transient_io);
+                (format!("{:?}", error.kind()), retry)
+            }
+        };
+        if progress.cancelled() {
+            return Err(Error::Cancelled {
+                id: package.id.clone(),
+            });
+        }
+        if !retry || attempt == ATTEMPTS {
+            let hint = if retry {
+                " Check the connection and retry the operation."
+            } else {
+                ""
+            };
+            return Err(Error::OperationFailed(format!(
+                "Download of {} from {} failed (attempt {attempt}/{ATTEMPTS}): {error}.{hint}",
+                package.id, package.url
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(250));
     }
-    install_reader(data_dir, package, response.into_reader(), progress)
+    unreachable!("the final download attempt returns its result")
+}
+
+fn transient_io(error: &io::Error) -> bool {
+    use io::ErrorKind::*;
+    matches!(
+        error.kind(),
+        TimedOut | WouldBlock | ConnectionReset | ConnectionAborted | UnexpectedEof | BrokenPipe
+    ) || (cfg!(windows) && error.raw_os_error() == Some(10060))
 }
 
 pub fn adopt_existing(data_dir: &Path, role: &str, executable: &Path) -> Result<PackageRecord> {
@@ -632,6 +702,65 @@ mod tests {
         assert!(matches!(error, Error::DigestMismatch { .. }));
         assert!(!dir.join("packages").join("fixture").exists());
         assert!(!dir.join("incoming").join("fixture-windows-x64").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stalled_download_retries_with_a_fresh_body_and_progress() {
+        use sha2::{Digest, Sha256};
+        use std::io::{BufRead, BufReader};
+        use std::net::{TcpListener, TcpStream};
+
+        fn request(listener: &TcpListener) -> TcpStream {
+            let (stream, _) = listener.accept().expect("download connection");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(&stream);
+            let mut line = String::new();
+            assert!(reader.read_line(&mut line).unwrap() > 0);
+            assert!(line.starts_with("GET /fixture.zip "));
+            loop {
+                line.clear();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            stream
+        }
+
+        let dir = temp_dir();
+        let bytes = zip_with("payload.txt", b"hello");
+        let mut package = package_for(&bytes, &hex::encode(Sha256::digest(&bytes)));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        package.url = format!("http://{}/fixture.zip", listener.local_addr().unwrap());
+        let size = bytes.len();
+        let server = std::thread::spawn(move || {
+            let headers =
+                format!("HTTP/1.1 200 OK\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n");
+            let mut stalled = request(&listener);
+            stalled.write_all(headers.as_bytes()).unwrap();
+            stalled.write_all(&bytes[..size / 2]).unwrap();
+            // Keep the incomplete response open until the client times out and retries.
+            let mut fresh = request(&listener);
+            drop(stalled);
+            fresh.write_all(headers.as_bytes()).unwrap();
+            fresh.write_all(&bytes).unwrap();
+        });
+
+        let progress = Progress::new();
+        let agent = ureq::AgentBuilder::new()
+            .timeout_read(Duration::from_millis(500))
+            .build();
+        let record =
+            download_with_agent(&dir, &package, &progress, &agent).expect("retried download");
+        server.join().unwrap();
+        assert_eq!(record.digest.as_deref(), Some(package.sha256.as_str()));
+        assert_eq!(fs::read(record.launch).unwrap(), b"hello");
+        assert_eq!(progress.bytes.load(Ordering::Relaxed), size as u64);
+        assert_eq!(progress.total.load(Ordering::Relaxed), size as u64);
+        assert!(!dir.join("incoming").join(&package.id).exists());
         let _ = fs::remove_dir_all(&dir);
     }
 
