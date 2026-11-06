@@ -370,6 +370,14 @@ pub fn service_launch(
 }
 
 pub fn ensure_venv(python: &Path, env_dir: &Path) -> Result<PathBuf> {
+    ensure_venv_with(python, env_dir, provision_venv)
+}
+
+pub(crate) fn ensure_venv_with(
+    python: &Path,
+    env_dir: &Path,
+    provision: impl FnOnce(&Path, &Path) -> Result<()>,
+) -> Result<PathBuf> {
     let target = venv_python(env_dir);
     if target.is_file() {
         return Ok(target);
@@ -382,21 +390,35 @@ pub fn ensure_venv(python: &Path, env_dir: &Path) -> Result<PathBuf> {
         fs::create_dir_all(parent)
             .map_err(|source| Error::io("create environment directory", source))?;
     }
+    if let Err(error) = provision(python, env_dir) {
+        let _ = fs::remove_dir_all(env_dir);
+        return Err(error);
+    }
+    if !target.is_file() {
+        let _ = fs::remove_dir_all(env_dir);
+        return Err(Error::OperationFailed(format!(
+            "virtual environment created with {} has no Python executable",
+            python.display()
+        )));
+    }
+    Ok(target)
+}
+
+pub(crate) fn provision_venv(python: &Path, env_dir: &Path) -> Result<()> {
     let output = Command::new(python)
         .args(["-m", "venv"])
         .arg(env_dir)
         .output()
         .map_err(|source| Error::io("create virtual environment", source))?;
-    if !output.status.success() || !target.is_file() {
+    if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr);
-        let _ = fs::remove_dir_all(env_dir);
         return Err(Error::OperationFailed(format!(
             "could not create a virtual environment with {}: {}",
             python.display(),
             detail.trim()
         )));
     }
-    Ok(target)
+    Ok(())
 }
 
 pub fn contained_dir(root: &Path, relative: &Path) -> Result<PathBuf> {

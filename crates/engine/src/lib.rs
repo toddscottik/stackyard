@@ -372,6 +372,18 @@ async fn dispatch(
         Command::PreviewProject { draft } => Ok(Outcome::ProjectPreview {
             preview: stackyard_core::preview::preview_request(draft, Some(store))?,
         }),
+        Command::DependencyOverview {
+            project_id,
+            scope,
+            scope_id,
+        } => Ok(Outcome::DependencyOverview {
+            overview: stackyard_core::dependency_overview::dependency_overview(
+                data_dir,
+                project_id,
+                scope,
+                scope_id.as_deref(),
+            )?,
+        }),
         Command::DepInstallScoped {
             project_id,
             scope_id,

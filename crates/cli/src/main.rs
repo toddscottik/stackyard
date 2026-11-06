@@ -973,6 +973,7 @@ fn print_outcome(outcome: &Outcome) {
     match outcome {
         Outcome::ConfigInspection { inspection } => create_cli::print_json(inspection),
         Outcome::ConfigReview { review } => create_cli::print_json(review),
+        Outcome::DependencyOverview { overview } => create_cli::print_json(overview),
         Outcome::ProjectForgotten { project_id } => println!("Forgot {project_id}"),
         Outcome::Recipes { recipes } => create_cli::print_json(recipes),
         Outcome::CreatePlan { plan } => create_cli::print_json(plan),

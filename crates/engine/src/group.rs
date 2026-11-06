@@ -99,6 +99,27 @@ impl GroupProcess {
         }
     }
 
+    /// Wait for stdout/stderr pumps without allowing inherited pipe handles in
+    /// descendants to hold the caller forever after the direct child exits.
+    pub fn finish_io_timeout(&mut self, limit: Duration) {
+        let started = Instant::now();
+        while self.logs.iter().any(|handle| !handle.is_finished()) {
+            if started.elapsed() >= limit {
+                #[cfg(unix)]
+                terminate_tree(self.group_id, true);
+                #[cfg(windows)]
+                self.job.terminate();
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        if self.logs.iter().all(JoinHandle::is_finished) {
+            self.finish_io();
+        } else {
+            self.logs.clear();
+        }
+    }
+
     pub fn request_stop(&mut self) {
         if ours(self.pid, &self.identity) {
             terminate_tree(self.group_id, false);
@@ -248,6 +269,11 @@ fn terminate_tree(group_id: u32, force: bool) {
     }
     let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
     unsafe {
+        if libc::kill(-(group_id as i32), 0) != 0
+            && std::io::Error::last_os_error().raw_os_error() != Some(libc::EPERM)
+        {
+            return;
+        }
         libc::kill(-(group_id as i32), signal);
     }
 }
@@ -333,3 +359,114 @@ unsafe impl Send for JobGuard {}
 
 #[cfg(windows)]
 unsafe impl Sync for JobGuard {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn child_exit_with_descendant_holding_logs_is_bounded() {
+        let root = stackyard_core::disposable_dir("group-log-descendant");
+        std::fs::create_dir_all(&root).unwrap();
+        let log = root.join("child.log");
+        let mut process = spawn_grouped(
+            Path::new("sh"),
+            &["-c".into(), "sleep 30 & exit 0".into()],
+            &root,
+            &[],
+            &log,
+        )
+        .unwrap();
+        let started = Instant::now();
+        while process.child.try_wait().unwrap().is_none() {
+            thread::sleep(Duration::from_millis(10));
+        }
+        process.finish_io_timeout(Duration::from_millis(100));
+        assert!(started.elapsed() < Duration::from_secs(3));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_command_bounds_a_stalled_pump_and_stops_job_children() {
+        use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT};
+        use windows::Win32::System::Threading::{
+            OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+        };
+
+        let Some(node) = std::env::var_os("STACKYARD_TEST_NODE") else {
+            eprintln!("Set STACKYARD_TEST_NODE to run the Windows inherited-pipe check.");
+            return;
+        };
+        let root = stackyard_core::disposable_dir("group-win-descendant");
+        std::fs::create_dir_all(&root).unwrap();
+        let log = root.join("child.log");
+        let mut process = spawn_grouped(
+            Path::new(&node),
+            &[
+                "-e".into(),
+                r#"
+                    const { spawn } = require('node:child_process');
+                    const fs = require('node:fs');
+                    const waiting = setInterval(() => {
+                        if (!fs.existsSync('job-ready')) return;
+                        clearInterval(waiting);
+                        const child = spawn(process.execPath, ['-e',
+                            'process.stdout.write("ready"); setTimeout(() => {}, 60000)'],
+                            { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
+                        child.stdout.once('data', () => {
+                            process.stdout.write(`${child.pid}\n`, () => process.exit(0));
+                        });
+                    }, 10);
+                "#
+                .into(),
+            ],
+            &root,
+            &[],
+            &log,
+        )
+        .unwrap();
+        std::fs::write(root.join("job-ready"), []).unwrap();
+        let started = Instant::now();
+        let status = loop {
+            if let Some(status) = process.child.try_wait().unwrap() {
+                break status;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "Node fixture did not exit"
+            );
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert!(status.success());
+        let pid: u32 = loop {
+            if let Ok(text) = std::fs::read_to_string(&log) {
+                if let Ok(pid) = text.trim().parse() {
+                    break pid;
+                }
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "No child PID was logged"
+            );
+            thread::sleep(Duration::from_millis(10));
+        };
+        let child = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }.unwrap();
+        let before = unsafe { WaitForSingleObject(child, 0) };
+        // Make the stalled reader deterministic regardless of Windows handle inheritance.
+        let (release, blocked) = std::sync::mpsc::channel::<()>();
+        process.logs.push(thread::spawn(move || {
+            let _ = blocked.recv_timeout(Duration::from_secs(10));
+        }));
+        process.finish_io_timeout(Duration::from_millis(100));
+        let _ = release.send(());
+        assert!(started.elapsed() < Duration::from_secs(7));
+        let after = unsafe { WaitForSingleObject(child, 2_000) };
+        unsafe { CloseHandle(child) }.unwrap();
+        assert_eq!(before, WAIT_TIMEOUT, "JobObject child was already stopped");
+        assert_eq!(after, WAIT_OBJECT_0, "JobObject child was not stopped");
+        drop(process);
+        let _ = std::fs::remove_dir_all(root);
+    }
+}

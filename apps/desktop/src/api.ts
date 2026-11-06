@@ -109,6 +109,13 @@ export function formatProgress(bytes: number, total: number): string {
   return formatSize(bytes);
 }
 export type Task = { id: string; label: string; state: string; message: string };
+export type DependencyOverview = {
+  manager: string;
+  directory: string;
+  inputs: string[];
+  packages: { name: string; requirement: string; group: string }[];
+  note: string;
+};
 export type FrontSite = {
   projectId: string;
   host: string;
@@ -213,6 +220,8 @@ export const api = {
   previewProject: (draft: PreviewRequest) => invoke<ProjectPreview>("preview_project", { draft }),
   selectScopePackage: (projectId: string, scopeId: string, packageId: string) => invoke<Project>("select_scope_package", { projectId, scopeId, packageId }),
   startDependencyScoped: (projectId: string, scopeId: string, action: string, packageName = "") => invoke<Task>("start_dependency_scoped", { projectId, scopeId, action, package: packageName }),
+  dependencyOverview: (projectId: string, scope: string, scopeId?: string) =>
+    invoke<DependencyOverview>("dependency_overview", { projectId, scope, scopeId: scopeId ?? null }),
   phpStatusScoped: (projectId: string, scopeId: string) => invoke<PhpProject>("php_status_scoped", { projectId, scopeId }),
   phpApplyProfileScoped: (projectId: string, scopeId: string, extensions: string[]) => invoke<PhpProject>("php_apply_profile_scoped", { projectId, scopeId, extensions }),
   phpInstallExtensionScoped: (projectId: string, scopeId: string, catalogId: string) => invoke<unknown>("php_install_extension_scoped", { projectId, scopeId, catalogId }),

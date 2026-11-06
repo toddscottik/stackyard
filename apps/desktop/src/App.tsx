@@ -114,8 +114,7 @@ export function App() {
           front={front.value ?? null}
           onFront={(value) => front.update(() => value)}
           refreshProjects={projects.refresh}
-          onDependency={activity.startDependency}
-          isDependencyBusy={activity.dependencyBusy}
+          activity={activity}
           onActivity={() => setSection("activity")}
         />
       </div>

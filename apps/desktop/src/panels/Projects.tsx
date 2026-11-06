@@ -1,18 +1,12 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api, type Front, type Installed, type Project } from "../api";
 import { recalled, remember } from "../preferences";
 import { useAction } from "../useAction";
+import { useResource } from "../useResource";
+import type { ActivityController } from "./Activity";
 import { Logs } from "./Logs";
 import { ProjectConfiguration, ProjectImport } from "./ProjectConfiguration";
 import "./project-configuration.css";
-
-type DependencyInput = {
-  projectId: string;
-  action: string;
-  packageName: string;
-  scope: string;
-  scopeId?: string;
-};
 
 function projectState(project: Project) {
   const states = project.services.map((service) => service.state);
@@ -49,23 +43,21 @@ type WorkspaceProps = {
   onProject: (project: Project) => void;
   onFront: (front: Front) => void;
   refreshProjects: () => void;
-  onDependency: (input: DependencyInput) => Promise<void>;
-  dependencyBusy: boolean;
+  activity: ActivityController;
   onActivity: () => void;
 };
 
-type ProjectsProps = Omit<WorkspaceProps, "project" | "dependencyBusy"> & {
+type ProjectsProps = Omit<WorkspaceProps, "project"> & {
   projects: Project[];
   selected: Project | null;
   workspaceRequest: number;
   onSelect: (id: string) => void;
   onImport: (project: Project) => void;
   onForget: (id: string) => void;
-  isDependencyBusy: (id: string) => boolean;
 };
 
 export function Projects({
-  projects, selected, workspaceRequest, onSelect, onImport, onForget, isDependencyBusy, ...workspace
+  projects, selected, workspaceRequest, onSelect, onImport, onForget, ...workspace
 }: ProjectsProps) {
   const { states, run } = useAction();
   const [importOpen, setImportOpen] = useState(false);
@@ -108,7 +100,7 @@ export function Projects({
         <section className="pane detail-pane" aria-labelledby="detail-heading">
           <button type="button" className="btn back" onClick={() => onSelect("")}>All projects</button>
           {selected ? <Workspace key={`${selected.id}:${workspaceRequest}`} project={selected} onForget={onForget} {...workspace}
-            dependencyBusy={isDependencyBusy(selected.id)} lifecycle={states[lifecycleKey]}
+            lifecycle={states[lifecycleKey]}
             onLifecycle={(invoke) => run(lifecycleKey, async () => {
               try { workspace.onProject(await invoke(selected.id)); }
               finally { workspace.refreshProjects(); }
@@ -159,7 +151,7 @@ const tabs = ["Overview", "Dependencies", "Logs", "Site", "Configuration"] as co
 type Tab = typeof tabs[number];
 
 function Workspace({ project, packages, front, enabled, visible, onFront, onProject, refreshProjects,
-  onDependency, dependencyBusy, onActivity, lifecycle, onLifecycle, onForget }: WorkspaceProps & {
+  activity, onActivity, lifecycle, onLifecycle, onForget }: WorkspaceProps & {
   onForget: (id: string) => void;
   lifecycle?: { pending: boolean; error: string };
   onLifecycle: (invoke: (id: string) => Promise<Project>) => Promise<boolean>;
@@ -206,8 +198,8 @@ function Workspace({ project, packages, front, enabled, visible, onFront, onProj
         <div key={item} id={`workspace-${item}`} role="tabpanel" aria-labelledby={`tab-${item}`} hidden={tab !== item}>
           {tab === item && item === "Overview" ? <Overview project={project} packages={packages}
             enabled={enabled} refreshProjects={refreshProjects} /> : null}
-          {tab === item && item === "Dependencies" ? <Dependencies project={project} enabled={enabled}
-            busy={dependencyBusy} start={onDependency} onActivity={onActivity} /> : null}
+          {tab === item && item === "Dependencies" ? <Dependencies project={project} enabled={enabled && visible}
+            activity={activity} onActivity={onActivity} /> : null}
           {tab === item && item === "Logs" ? <Logs projectId={project.id} services={project.services} enabled={enabled && visible} /> : null}
           {tab === item && item === "Site" ? <Site projectId={project.id} front={front} enabled={enabled} onFront={onFront} /> : null}
           {tab === item && item === "Configuration" ? <ProjectConfiguration project={project} enabled={enabled}
@@ -281,14 +273,30 @@ function Overview({ project, packages, enabled, refreshProjects }: Pick<Workspac
   );
 }
 
-function Dependencies({ project, enabled, busy, start, onActivity }: {
-  project: Project; enabled: boolean; busy: boolean; start: WorkspaceProps["onDependency"]; onActivity: () => void;
+function Dependencies({ project, enabled, activity, onActivity }: {
+  project: Project; enabled: boolean; activity: ActivityController; onActivity: () => void;
 }) {
-  const [scopeId, setScopeId] = useState(project.scopes.length > 1 ? project.scopes[0].id : "");
+  const [scopeId, setScopeId] = useState(project.scopes[0]?.id ?? "");
   const [directory, setDirectory] = useState("");
   const [packageName, setPackageName] = useState("");
   const { states, run } = useAction();
   const scope = project.scopes.find((item) => item.id === scopeId);
+  const targetDirectory = scope ? "" : directory.trim();
+  const loadOverview = useCallback(() => api.dependencyOverview(project.id, targetDirectory, scope?.id),
+    [project.id, targetDirectory, scope?.id]);
+  const overview = useResource(loadOverview, { enabled });
+  const busy = activity.dependencyBusy(project.id);
+  const task = activity.dependencyEntry(project.id);
+  const running = task?.state === "running";
+  const needsFullOutput = task && !running && task.message.startsWith("…") && task.output === undefined;
+  useEffect(() => {
+    if (enabled && task && needsFullOutput && !task.loadingOutput && !task.error) {
+      void activity.loadOutput(task.id);
+    }
+  }, [activity, enabled, needsFullOutput, task]);
+  useEffect(() => {
+    if (task?.state === "succeeded" && !task.label.startsWith("deps list ")) overview.refresh();
+  }, [task?.id, task?.state, task?.label, overview.refresh]);
   const actions = [
     ["install", "Install dependencies"], ["add", "Add package"], ["remove", "Remove package"],
     ["update", "Update selected package"], ["list", "List installed"],
@@ -298,32 +306,63 @@ function Dependencies({ project, enabled, busy, start, onActivity }: {
       <p className="hint">{scope?.managerDetail || project.managerDetail || "Choose a dependency scope or workspace directory."}</p>
       {project.scopes.length ? <div className="field">
         <label htmlFor="scope-choice">Dependency scope</label>
-        <select id="scope-choice" className="input" value={scope?.id ?? ""} onChange={(event) => setScopeId(event.target.value)}>
+        <select id="scope-choice" className="input" disabled={busy} value={scope?.id ?? ""} onChange={(event) => setScopeId(event.target.value)}>
           <option value="">Workspace directory</option>
           {project.scopes.map((item) => <option key={item.id} value={item.id}>{item.id} · {item.manager || item.runtime}</option>)}
         </select>
       </div> : null}
       {!scope ? <div className="field">
         <label htmlFor="dep-scope">Workspace directory</label>
-        <input id="dep-scope" className="input" value={directory} onChange={(event) => setDirectory(event.target.value)}
+        <input id="dep-scope" className="input" disabled={busy} value={directory} onChange={(event) => setDirectory(event.target.value)}
           placeholder="Empty uses the project root" />
       </div> : null}
+      <section className="block" aria-label="Install target">
+        <h3>Install target</h3>
+        {overview.loading && !overview.value && <p className="hint" role="status">Reading dependency declarations…</p>}
+        {overview.error && <p className="action-error" role="alert">{overview.error}{" "}
+          <button type="button" className="btn" disabled={!enabled || overview.loading} onClick={overview.refresh}>Retry</button>
+        </p>}
+        {overview.value && <>
+          <p className="detail-line">{overview.value.manager}{overview.value.inputs.length > 0 && <> · {overview.value.inputs.join(", ")}</>}</p>
+          <p className="path mono">{overview.value.directory}</p>
+          {overview.value.packages.length ? <ul className="dependency-declarations" aria-label="Direct dependency declarations" tabIndex={0}>
+            {overview.value.packages.map(({ name, requirement, group }) => <li key={`${group}:${name}`}>
+              <span className="mono">{name}{requirement && ` ${requirement}`}</span> · {group}
+            </li>)}
+          </ul> : <p className="hint">No direct package declarations found.</p>}
+          <p className="hint">{overview.value.note}</p>
+        </>}
+      </section>
       <div className="field">
         <label htmlFor="dep-package">Package</label>
-        <input id="dep-package" className="input" value={packageName} onChange={(event) => setPackageName(event.target.value)}
+        <input id="dep-package" className="input" disabled={busy} value={packageName} onChange={(event) => setPackageName(event.target.value)}
           placeholder="Required for add, remove, and update" />
       </div>
       <div className="row">
         {actions.map(([action, label]) => <button key={action} type="button" className="btn"
-          disabled={!enabled || busy || states.dependency?.pending ||
+          disabled={!enabled || busy || states.dependency?.pending || (action === "install" && !overview.value) ||
             (!["list", "install"].includes(action) && !packageName.trim())}
-          onClick={() => void run("dependency", () => start({
-            projectId: project.id, action, packageName: packageName.trim(), scope: directory.trim(), scopeId: scope?.id,
+          onClick={() => void run("dependency", () => activity.startDependency({
+            projectId: project.id, action, packageName: ["list", "install"].includes(action) ? "" : packageName.trim(),
+            scope: targetDirectory, scopeId: scope?.id,
           }))}>{label}</button>)}
         <button type="button" className="btn ghost" onClick={onActivity}>View activity</button>
       </div>
-      {busy ? <p role="status" className="hint">Dependency operation in progress.</p> : null}
-      {states.dependency?.error ? <p role="alert" className="action-error">{states.dependency.error}</p> : null}
+      {busy && !task && <p role="status" className="hint">Starting dependency operation…</p>}
+      {running && activity.error && <p className="action-error" role="alert">Could not refresh activity.{" "}
+        <button type="button" className="btn" onClick={activity.refresh}>Refresh status</button>
+      </p>}
+      {task && <section className="block" aria-label="Dependency result">
+        <h3>Dependency result</h3>
+        <p className="detail-line" role="status">{task.label} · {task.cancelling ? "cancelling" : task.state}</p>
+        {task.loadingOutput ? <p className="hint" role="status">Loading full output…</p> :
+          <pre className="output">{task.output ?? (task.message || "No output returned.")}</pre>}
+        {task.error && <p role="alert" className="action-error">{task.error}</p>}
+        {running && <button className="btn" disabled={!enabled || task.cancelling} onClick={() => void activity.cancel(task.id)}>Cancel task</button>}
+        {needsFullOutput && task.error && <button className="btn" disabled={!enabled} onClick={() => void activity.loadOutput(task.id)}>Retry output</button>}
+      </section>}
+      {states.dependency?.error && task?.state !== "request failed" &&
+        <p role="alert" className="action-error">{states.dependency.error}</p>}
     </section>
   );
 }

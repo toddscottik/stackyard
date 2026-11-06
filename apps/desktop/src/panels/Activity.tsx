@@ -160,16 +160,20 @@ export function useActivity({ enabled, engineId, onInstalled }: {
     async function readActivity() {
       const tracked = ledger.current.filter((entry) => entry.state === "running");
       try {
-        const result = await api.activity();
-        if (!active) return;
-
         const incoming = new Map<string, Entry>();
-        for (const operation of result.operations) {
-          incoming.set(operation.id, operationEntry(operation, engineId));
+        let refreshError = "";
+        try {
+          const result = await api.activity();
+          for (const operation of result.operations) {
+            incoming.set(operation.id, operationEntry(operation, engineId));
+          }
+          for (const task of result.tasks) {
+            incoming.set(task.id, taskEntry(task, engineId));
+          }
+        } catch (err) {
+          refreshError = errorText(err);
         }
-        for (const task of result.tasks) {
-          incoming.set(task.id, taskEntry(task, engineId));
-        }
+        if (!active) return;
 
         // A bounded list can omit a tracked ID. Query that ID before changing its status.
         for (const entry of tracked) {
@@ -178,7 +182,11 @@ export function useActivity({ enabled, engineId, onInstalled }: {
             incoming.set(entry.id, await entryStatus(entry, engineId));
           } catch (err) {
             const noun = entry.kind === "install" ? "install" : "task";
-            if (!errorText(err).includes(`${noun} ${entry.id} was not found`)) continue;
+            if (!errorText(err).includes(`${noun} ${entry.id} was not found`)) {
+              refreshError ||= errorText(err);
+              if (!active) return;
+              continue;
+            }
             const restarted = engineId !== entry.engineId;
             incoming.set(entry.id, {
               ...entry,
@@ -202,7 +210,7 @@ export function useActivity({ enabled, engineId, onInstalled }: {
           return mergeEntry(entry, latest);
         });
         commitRef.current([...incoming.values(), ...updated]);
-        setError("");
+        setError(refreshError);
       } catch (err) {
         if (active) setError(errorText(err));
       }
@@ -356,6 +364,8 @@ export function useActivity({ enabled, engineId, onInstalled }: {
       await start({ kind: "task", input: { ...input, packageName: input.packageName.trim(), scope: input.scope.trim() } });
     },
     dependencyBusy: (projectId: string) => pending.has(`deps:${projectId}`) || entries.some((entry) => dependencyProject(entry) === projectId && entry.state === "running"),
+    dependencyEntry: (projectId: string) => entries.find((entry) => dependencyProject(entry) === projectId && entry.state === "running") ??
+      entries.find((entry) => dependencyProject(entry) === projectId),
     cancel,
     loadOutput,
     retry: async (request: Request) => {

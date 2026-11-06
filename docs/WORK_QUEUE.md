@@ -127,3 +127,10 @@ and remaining macOS acceptance are recorded in [Stage 11 evidence](evidence/S11-
 | Integration | Coordinator | Config preview/apply, protocol, CLI and Tauri wiring, native acceptance and status |
 
 Reviewed on 6 November 2026. [Stage 12 evidence](evidence/S12-IMPORT.md)
+
+## Stage 13.2 dependency feedback follow-up
+
+The Dependencies panel shows the install inputs and current task output,
+including empty list results. The engine bounds dependency preparation,
+owner waits and output drain. See [dependency feedback evidence](evidence/S13-DEPENDENCY-FEEDBACK.md).
+The rest of Stage 13 remains ready.

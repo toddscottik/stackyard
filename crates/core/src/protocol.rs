@@ -104,6 +104,11 @@ pub enum Command {
     PreviewProject {
         draft: crate::preview::PreviewRequest,
     },
+    DependencyOverview {
+        project_id: String,
+        scope: String,
+        scope_id: Option<String>,
+    },
     DepInstallScoped {
         project_id: String,
         scope_id: String,
@@ -326,6 +331,9 @@ pub struct Response {
 pub enum Outcome {
     ProjectPreview {
         preview: crate::preview::ProjectPreview,
+    },
+    DependencyOverview {
+        overview: crate::dependency_overview::DependencyOverview,
     },
     Caches {
         instances: Vec<crate::store::CacheInstanceRecord>,

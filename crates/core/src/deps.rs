@@ -99,6 +99,14 @@ pub struct DepRequest<'a> {
     pub scope_id: Option<&'a str>,
 }
 
+type VersionProbe<'a> = dyn Fn(&Path, &[String]) -> Result<String> + 'a;
+type VenvProvision<'a> = dyn Fn(&Path, &Path) -> Result<()> + 'a;
+
+pub struct DependencyPreparation<'a> {
+    pub probe_version: &'a VersionProbe<'a>,
+    pub create_venv: &'a VenvProvision<'a>,
+}
+
 pub fn plan_dependency(
     data_dir: &Path,
     project_id: &str,
@@ -106,6 +114,29 @@ pub fn plan_dependency(
     manifest: &Manifest,
     request: DepRequest<'_>,
     toolchain: Toolchain<'_>,
+) -> Result<DepPlan> {
+    plan_dependency_with(
+        data_dir,
+        project_id,
+        root,
+        manifest,
+        request,
+        toolchain,
+        DependencyPreparation {
+            probe_version: &tool_version,
+            create_venv: &project::provision_venv,
+        },
+    )
+}
+
+pub fn plan_dependency_with(
+    data_dir: &Path,
+    project_id: &str,
+    root: &Path,
+    manifest: &Manifest,
+    request: DepRequest<'_>,
+    toolchain: Toolchain<'_>,
+    preparation: DependencyPreparation<'_>,
 ) -> Result<DepPlan> {
     let DepRequest {
         action,
@@ -145,7 +176,7 @@ pub fn plan_dependency(
             let pnpm = toolchain.pnpm.ok_or_else(|| {
                 Error::InvalidMessage("select a pnpm tool before running pnpm".to_string())
             })?;
-            check_package_manager_field(&scope_dir, "pnpm", pnpm)?;
+            check_package_manager_field(&scope_dir, "pnpm", pnpm, preparation.probe_version)?;
             node_commands(
                 manager,
                 pnpm.to_path_buf(),
@@ -169,7 +200,7 @@ pub fn plan_dependency(
             let python = if let Some(venv) = toolchain.venv_python {
                 venv.to_path_buf()
             } else {
-                project::ensure_venv(base, &env_dir)?
+                project::ensure_venv_with(base, &env_dir, preparation.create_venv)?
             };
             if matches!(
                 action,
@@ -466,7 +497,12 @@ pub(crate) fn package_manager_name(root: &Path) -> Result<Option<ManagerKind>> {
     }
 }
 
-fn check_package_manager_field(root: &Path, expected: &str, program: &Path) -> Result<()> {
+fn check_package_manager_field(
+    root: &Path,
+    expected: &str,
+    program: &Path,
+    probe: &VersionProbe<'_>,
+) -> Result<()> {
     let path = root.join("package.json");
     if !path.is_file() {
         return Ok(());
@@ -485,8 +521,10 @@ fn check_package_manager_field(root: &Path, expected: &str, program: &Path) -> R
     if name != expected || version.is_empty() {
         return Ok(());
     }
-    let actual = tool_version(program, &["--version".to_string()])
-        .or_else(|_| tool_version(program, &["-v".to_string()]))?;
+    let actual = probe(program, &["--version".to_string()]).or_else(|error| match error {
+        Error::Cancelled { .. } => Err(error),
+        _ => probe(program, &["-v".to_string()]),
+    })?;
     let actual_version = actual.split_whitespace().last().unwrap_or(actual.as_str());
     if actual_version != version {
         return Err(Error::InvalidMessage(format!(

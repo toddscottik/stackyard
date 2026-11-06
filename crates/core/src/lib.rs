@@ -10,6 +10,7 @@ mod client;
 pub mod configuration;
 pub mod create;
 mod database;
+pub mod dependency_overview;
 mod deps;
 pub mod detect;
 mod diagnostics;
@@ -45,8 +46,8 @@ pub use database::{
     DEFAULT_POSTGRES_PORT,
 };
 pub use deps::{
-    manifest_fingerprint, plan_dependency, resolve_manager, scope_dir, tool_version, DepAction,
-    DepPlan, DepRequest, PlannedCommand, Toolchain,
+    manifest_fingerprint, plan_dependency, plan_dependency_with, resolve_manager, scope_dir,
+    tool_version, DepAction, DepPlan, DepRequest, DependencyPreparation, PlannedCommand, Toolchain,
 };
 pub use diagnostics::{export_diagnostics, LIMITATIONS};
 pub use error::{Error, Result};

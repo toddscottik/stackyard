@@ -305,7 +305,7 @@ async fn install_scope(data: &Path, scope: &str) {
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "dependency install timed out"
+            "{scope} dependency install timed out: {message}"
         );
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
     }

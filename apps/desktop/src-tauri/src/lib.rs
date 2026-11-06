@@ -34,6 +34,7 @@ pub fn run() {
             commands::select_scope_package,
             commands::preview_project,
             commands::start_dependency_scoped,
+            commands::dependency_overview,
             commands::php_status_scoped,
             commands::php_apply_profile_scoped,
             commands::php_install_extension_scoped,

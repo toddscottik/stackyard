@@ -617,6 +617,24 @@ pub async fn read_logs(
 }
 
 #[tauri::command]
+pub async fn dependency_overview(
+    project_id: String,
+    scope: String,
+    scope_id: Option<String>,
+) -> Result<stackyard_core::dependency_overview::DependencyOverview, String> {
+    match query(Command::DependencyOverview {
+        project_id,
+        scope,
+        scope_id,
+    })
+    .await?
+    {
+        Outcome::DependencyOverview { overview } => Ok(overview),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
 pub async fn start_dependency(
     project_id: String,
     action: String,

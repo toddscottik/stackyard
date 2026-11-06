@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 6 November 2026 (Stage 12 Windows desktop acceptance).
+Updated: 6 November 2026 (Stage 13.2 dependency feedback).
 
 ## Completed preparation
 
@@ -31,7 +31,7 @@ Updated: 6 November 2026 (Stage 12 Windows desktop acceptance).
 | 10: Build the shared desktop workspace and activity layer | Done on Windows. Remembered workspace, resource ownership, Activity and log tail verified. Mac pending. | Run the native Mac smoke when available. |
 | 11: Create runnable projects from the desktop | Done on Windows. All four desktop starter flows passed, including FastAPI with managed CPython and reload. Mac pending. | Begin Stage 12.1 read-only import detection. Repeat desktop acceptance on macOS 14.5 arm64 when available. |
 | 12: Import applications and edit their configuration | Done on Windows. Read-only detection, checked configuration save, reload and stopped-project forget passed. Mac pending. | Begin Stage 13.1 shared component operations. Repeat the desktop import checks on macOS 14.5 arm64 when available. |
-| 13: Unify components, dependencies and PHP extensions | Not started | Global Components and each project's Stack expose the same working runtime/tool/server and extension capabilities. |
+| 13: Unify components, dependencies and PHP extensions | Partial. Dependency preview, task feedback and empty list results passed on Windows. | Begin Stage 13.1 shared component operations and continue the remaining Stage 13 tasks. Repeat dependency feedback checks on macOS. |
 | 14: Complete project database workflows | Not started | A project can provision or attach a database and use its credentials without manually finding secret files. |
 | 15: Complete sites, HTTPS and desktop settings | Not started | Project Site and global Web/Data settings provide the real routing and host-integration controls. |
 | 16: Finish desktop usability and failure recovery | Not started | All delivered workflows remain usable through keyboard, navigation, cancellation, engine reconnect and offline startup. |
