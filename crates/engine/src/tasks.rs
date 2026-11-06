@@ -24,6 +24,7 @@ impl TaskSnapshot {
 
 struct Task {
     label: String,
+    project_id: String,
     state: String,
     message: String,
     cancel: Arc<AtomicBool>,
@@ -52,17 +53,27 @@ impl TaskBoard {
         })
     }
 
-    pub fn start(&self, label: String) -> (String, Arc<AtomicBool>) {
+    pub fn start(&self, label: String, project_id: &str) -> (String, Arc<AtomicBool>) {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let cancel = Arc::new(AtomicBool::new(false));
         let task = Task {
             label,
+            project_id: project_id.to_owned(),
             state: "running".to_string(),
             message: "running".to_string(),
             cancel: Arc::clone(&cancel),
         };
         self.inner.lock().expect("tasks").entries.insert(id, task);
         (format!("task-{id}"), cancel)
+    }
+
+    pub fn project_is_busy(&self, project_id: &str) -> bool {
+        self.inner
+            .lock()
+            .expect("tasks")
+            .entries
+            .values()
+            .any(|task| task.project_id == project_id && task.state == "running")
     }
 
     pub fn finish(&self, id: &str, state: &str, message: &str) {

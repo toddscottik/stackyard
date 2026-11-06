@@ -58,18 +58,37 @@ pub fn new(data_dir: PathBuf) -> Arc<Supervisor> {
 }
 
 impl Supervisor {
+    pub fn project_is_busy(&self, project_id: &str) -> bool {
+        self.operations
+            .lock()
+            .expect("operations")
+            .contains(project_id)
+            || self.project_has_workers(project_id)
+    }
+
+    fn project_has_workers(&self, project_id: &str) -> bool {
+        self.cancels
+            .lock()
+            .expect("cancels")
+            .contains_key(project_id)
+            || self.live.lock().expect("live").keys().any(|key| {
+                key.strip_prefix(project_id)
+                    .is_some_and(|tail| tail.starts_with('\0'))
+            })
+    }
+
+    pub fn clear_stop_flags(&self, project_id: &str) {
+        let prefix = format!("{project_id}\0");
+        self.stops
+            .lock()
+            .expect("stops")
+            .retain(|key, _| !key.starts_with(&prefix));
+    }
+
     pub fn reconcile(&self) -> Result<()> {
         let store = Store::open(&self.data_dir)?;
         for process in store.active_processes()? {
-            let current = process
-                .pid
-                .and_then(|pid| u32::try_from(pid).ok())
-                .and_then(group::process_identity);
-            let same = process
-                .identity
-                .as_deref()
-                .is_some_and(|recorded| group::same_process(recorded, current.as_deref()));
-            if same {
+            if recorded_process_is_alive(&process) {
                 self.write(process_row(&process, "orphaned", process.detail.clone()))?;
             } else {
                 let mut stopped = process;
@@ -84,6 +103,12 @@ impl Supervisor {
 
     pub fn start(self: &Arc<Self>, project_id: &str) -> Result<ProjectView> {
         let _operation = self.operation(project_id)?;
+        if self.project_has_workers(project_id) {
+            return Err(Error::ProjectBusy {
+                id: project_id.to_owned(),
+                state: "service workers are still active".into(),
+            });
+        }
         if self.shutdown.load(Ordering::Relaxed) {
             return Err(Error::OperationFailed("the engine is stopping".to_string()));
         }
@@ -103,10 +128,6 @@ impl Supervisor {
             )?;
         }
         let cancel = Arc::new(AtomicBool::new(false));
-        self.cancels
-            .lock()
-            .expect("cancels")
-            .insert(project_id.to_string(), Arc::clone(&cancel));
         for id in &order {
             self.mark(
                 &project.id,
@@ -120,6 +141,10 @@ impl Supervisor {
                 "",
             )?;
         }
+        self.cancels
+            .lock()
+            .expect("cancels")
+            .insert(project_id.to_string(), Arc::clone(&cancel));
         let supervisor = Arc::clone(self);
         let id = project_id.to_string();
         tokio::task::spawn_blocking(move || supervisor.run_start(id, cancel));
@@ -153,13 +178,7 @@ impl Supervisor {
         self.signal_project(project_id);
         let started = Instant::now();
         while started.elapsed() < Duration::from_secs(3) {
-            let busy = self
-                .live
-                .lock()
-                .expect("live")
-                .keys()
-                .any(|key| key.starts_with(&format!("{project_id}\0")));
-            if !busy {
+            if !self.project_has_workers(project_id) {
                 break;
             }
             thread::sleep(Duration::from_millis(50));
@@ -167,6 +186,15 @@ impl Supervisor {
         let store = Store::open(&self.data_dir)?;
         for service in store.list_processes(project_id)? {
             if matches!(service.state.as_str(), "starting" | "running" | "orphaned") {
+                if service.state == "orphaned" && recorded_process_is_alive(&service) {
+                    return Err(Error::ProjectBusy {
+                        id: project_id.to_owned(),
+                        state: format!(
+                            "waiting for orphaned service {} to stop",
+                            service.service_id
+                        ),
+                    });
+                }
                 self.mark(
                     project_id,
                     &service.service_id,
@@ -1098,6 +1126,17 @@ fn reserve_port(requested: u16) -> Result<u16> {
         .port();
     drop(listener);
     Ok(port)
+}
+
+fn recorded_process_is_alive(process: &ProcessRecord) -> bool {
+    let current = process
+        .pid
+        .and_then(|pid| u32::try_from(pid).ok())
+        .and_then(group::process_identity);
+    process
+        .identity
+        .as_deref()
+        .is_some_and(|recorded| group::same_process(recorded, current.as_deref()))
 }
 
 fn live_key(project: &str, service: &str) -> String {

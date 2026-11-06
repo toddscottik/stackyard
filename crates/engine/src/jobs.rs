@@ -261,13 +261,13 @@ mod tests {
     async fn activity_summaries_fit_transport_and_keep_utf8_output() {
         let jobs = Jobs::new();
         let tasks = TaskBoard::new();
-        let (running, _) = tasks.start("deps install fixture".to_string());
+        let (running, _) = tasks.start("deps install fixture".to_string(), "fixture");
         let output = "\0\0\0😀".repeat(1_100);
         let mut latest = String::new();
         for _ in 0..HISTORY_LIMIT {
             let (operation, ..) = jobs.start("fixture".to_string());
             jobs.finish(&operation, Err(Error::InvalidMessage(output.clone())));
-            (latest, _) = tasks.start("deps list fixture".to_string());
+            (latest, _) = tasks.start("deps list fixture".to_string(), "fixture");
             tasks.finish(&latest, "succeeded", &output);
         }
         let full_output = tasks.snapshot(&latest).unwrap().message;

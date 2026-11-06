@@ -30,6 +30,8 @@ Stage 10 adds remembered project tabs, shared Activity for installs and dependen
 
 Stage 11 adds **Create project** for Node HTTP, Next.js, Flask, and FastAPI. Choose a parent folder, runtime and dependency manager, then review the files, component downloads and commands. After generation, install dependencies and start the app from the same panel. The CLI can save a read-only JSON plan and apply the reviewed file later. See [starter versions](fixtures/starters/README.md).
 
+Stage 12 adds **Import project** for existing applications. Inspect a folder, review the evidence and edit the proposed scopes, commands, ports and site. Preview shows the proposed `stackyard.toml` before you save it. Use the project's **Configuration** tab for later edits, editor access and reload. Forget detaches a stopped, unpublished project and keeps its files and database data. See [import detection and preservation rules](docs/decisions/0010-import-configuration.md).
+
 Development commands, from the repository root:
 
 ```text
@@ -41,6 +43,11 @@ cargo run -p stackyard-cli -- catalog
 cargo run -p stackyard-cli -- install node-24.22.2-windows-x64
 cargo run -p stackyard-cli -- use-existing python "C:\Python\Python312\python.exe"
 cargo run -p stackyard-cli -- import PATH
+cargo run -p stackyard-cli -- configure inspect PATH > DRAFT.json
+cargo run -p stackyard-cli -- configure preview DRAFT.json
+cargo run -p stackyard-cli -- configure apply DRAFT.json FINGERPRINT
+cargo run -p stackyard-cli -- configure reload PROJECT
+cargo run -p stackyard-cli -- configure forget PROJECT
 cargo run -p stackyard-cli -- create recipes
 cargo run -p stackyard-cli -- create plan PARENT NAME node-http npm catalog:node-24.22.2-windows-x64 > PLAN.json
 cargo run -p stackyard-cli -- create apply PLAN.json --wait

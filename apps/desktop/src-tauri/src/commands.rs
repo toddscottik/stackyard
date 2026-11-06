@@ -89,6 +89,57 @@ async fn query(command: Command) -> Result<Outcome, String> {
 }
 
 #[tauri::command]
+pub async fn inspect_config(
+    path: String,
+) -> Result<stackyard_core::configuration::ConfigInspection, String> {
+    match call(Command::InspectConfig { path }).await? {
+        Outcome::ConfigInspection { inspection } => Ok(*inspection),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
+pub async fn preview_config(
+    draft: stackyard_core::configuration::ConfigDraft,
+) -> Result<stackyard_core::configuration::ConfigReview, String> {
+    match call(Command::PreviewConfig {
+        draft: Box::new(draft),
+    })
+    .await?
+    {
+        Outcome::ConfigReview { review } => Ok(*review),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
+pub async fn apply_config(
+    draft: stackyard_core::configuration::ConfigDraft,
+    fingerprint: String,
+) -> Result<ProjectView, String> {
+    one_project(
+        call(Command::ApplyConfig {
+            draft: Box::new(draft),
+            fingerprint,
+        })
+        .await?,
+    )
+}
+
+#[tauri::command]
+pub async fn reload_project(project_id: String) -> Result<ProjectView, String> {
+    one_project(call(Command::ReloadProject { project_id }).await?)
+}
+
+#[tauri::command]
+pub async fn forget_project(project_id: String) -> Result<(), String> {
+    match call(Command::ForgetProject { project_id }).await? {
+        Outcome::ProjectForgotten { .. } => Ok(()),
+        other => Err(format!("unexpected engine reply: {other:?}")),
+    }
+}
+
+#[tauri::command]
 pub fn list_recipes() -> Vec<stackyard_core::recipes::RecipeInfo> {
     stackyard_core::recipes::recipes()
 }
@@ -694,7 +745,20 @@ pub async fn open_project(
     action: String,
     service_id: String,
 ) -> Result<(), String> {
-    let project = one_project(call(Command::ProjectStatus { project_id }).await?)?;
+    let status = call(Command::ProjectStatus {
+        project_id: project_id.clone(),
+    })
+    .await
+    .and_then(one_project);
+    let project = match status {
+        Ok(project) => project,
+        Err(error) if matches!(action.as_str(), "folder" | "editor" | "shell") => list_projects()
+            .await?
+            .into_iter()
+            .find(|project| project.id == project_id)
+            .ok_or(error)?,
+        Err(error) => return Err(error),
+    };
     let root = canonical_project_root(&project.root)?;
     match action.as_str() {
         "folder" => {

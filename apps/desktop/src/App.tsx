@@ -101,6 +101,12 @@ export function App() {
             updateProject(project);
             if (selection.current === selectedId) chooseProject(project.id);
           }}
+          onForget={(id) => {
+            const remaining = (known ?? []).filter((project) => project.id !== id);
+            projects.update((items) => (items ?? []).filter((project) => project.id !== id));
+            if (selection.current === id) chooseProject(remaining[0]?.id ?? "");
+            databases.refresh();
+          }}
           onProject={updateProject}
           packages={packages.value ?? []}
           enabled={enabled}

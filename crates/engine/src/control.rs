@@ -86,7 +86,7 @@ pub fn start_exec(
     let launch = service_launch(data_dir, &project, &service, port, args)?;
     let log_path = service_log_path(data_dir, project_id, &format!("{service_id}-exec"));
     let label = format!("exec {project_id} {service_id}");
-    spawn_task(tasks, label, move |cancel| {
+    spawn_task(tasks, project_id, label, move |cancel| {
         run_launch(&launch, &log_path, &cancel, Duration::from_secs(20))
     })
 }
@@ -103,7 +103,8 @@ pub fn start_recovery(
     let label = format!(
         "recover dependencies {project_id} from the lockfile; this does not roll back package scripts"
     );
-    spawn_task(tasks, label, move |cancel| {
+    let owner = project_id.clone();
+    spawn_task(tasks, &owner, label, move |cancel| {
         let message = run_dependency(
             &data_dir,
             &project_id,
@@ -128,32 +129,21 @@ pub fn start_dependency(
     scope: &str,
 ) -> Result<Outcome> {
     let data_dir = data_dir.to_path_buf();
-    let project_id = project_id.to_string();
+    let project = project_id.to_string();
     let package = package.map(str::to_string);
     let scope = scope.to_string();
     let label = format!("deps {} {project_id}", action_name(action));
-    let (id, cancel) = tasks.start(label.clone());
-    let tasks_for_job = Arc::clone(tasks);
-    let operation = id.clone();
-    tokio::task::spawn_blocking(move || {
-        let result = run_dependency(
+    spawn_task(tasks, project_id, label, move |cancel| {
+        run_dependency(
             &data_dir,
-            &project_id,
+            &project,
             action,
             package.as_deref(),
             &scope,
             None,
             &cancel,
-        );
-        match result {
-            Ok(message) => tasks_for_job.finish(&operation, "succeeded", &message),
-            Err(Error::Cancelled { .. }) => {
-                tasks_for_job.finish(&operation, "cancelled", "cancelled")
-            }
-            Err(err) => tasks_for_job.finish(&operation, "failed", &err.to_string()),
-        }
-    });
-    task_outcome(tasks, &id)
+        )
+    })
 }
 
 pub fn task_outcome(tasks: &TaskBoard, id: &str) -> Result<Outcome> {
@@ -168,11 +158,16 @@ pub fn task_outcome(tasks: &TaskBoard, id: &str) -> Result<Outcome> {
     })
 }
 
-fn spawn_task<F>(tasks: &Arc<TaskBoard>, label: String, work: F) -> Result<Outcome>
+fn spawn_task<F>(
+    tasks: &Arc<TaskBoard>,
+    project_id: &str,
+    label: String,
+    work: F,
+) -> Result<Outcome>
 where
     F: FnOnce(Arc<AtomicBool>) -> std::result::Result<String, Error> + Send + 'static,
 {
-    let (id, cancel) = tasks.start(label);
+    let (id, cancel) = tasks.start(label, project_id);
     let tasks_for_job = Arc::clone(tasks);
     let operation = id.clone();
     tokio::task::spawn_blocking(move || match work(cancel) {
@@ -519,6 +514,7 @@ pub fn start_dependency_scoped(
     let package = package.map(str::to_string);
     spawn_task(
         tasks,
+        project_id,
         format!("deps {} {project}/{scope}", action_name(action)),
         move |cancel| {
             run_dependency(
@@ -545,6 +541,7 @@ pub fn start_recovery_scoped(
     let scope = scope_id.to_string();
     spawn_task(
         tasks,
+        project_id,
         format!("recover dependencies {project}/{scope} from the lockfile"),
         move |cancel| {
             let message = run_dependency(

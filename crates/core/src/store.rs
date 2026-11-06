@@ -1,12 +1,12 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::{Error, Result};
 use crate::protocol::{validate_setting_key, validate_setting_value};
 
-const SCHEMA_VERSION: u32 = 8;
+const SCHEMA_VERSION: u32 = 9;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScopeSelectionRecord {
@@ -460,13 +460,119 @@ impl Store {
     }
 
     pub fn insert_project(&self, project: &ProjectRecord) -> Result<()> {
-        self.conn
+        let inserted = self
+            .conn
             .execute(
-                "INSERT INTO projects (id, name, root, imported_at) VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO projects (id, name, root, imported_at)
+                 SELECT ?1, ?2, ?3, ?4
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM forgotten_project_roots WHERE id = ?1 AND root <> ?3
+                 )",
                 params![project.id, project.name, project.root, now_unix()],
             )
             .map_err(|source| Error::database("insert project", source))?;
+        if inserted == 0 {
+            return self.validate_project_root_id(&project.id, &project.root);
+        }
         Ok(())
+    }
+
+    /// Retained project-local state is keyed by ID. Only the original folder can reuse it.
+    /// The caller supplies a canonical project path in the same form used for registration.
+    pub fn validate_project_root_id(&self, id: &str, root: &str) -> Result<()> {
+        if self.schema_version()? < 9 {
+            return Ok(());
+        }
+        let original: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT root FROM forgotten_project_roots WHERE id = ?1 AND root <> ?2",
+                params![id, root],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|source| Error::database("read retained project owner", source))?;
+        if let Some(original) = original {
+            return Err(Error::InvalidMessage(format!(
+                "Project ID {id} is reserved for {original} because its local data was kept. Choose a different project ID for this folder."
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn require_stopped_project(&self, id: &str) -> Result<ProjectRecord> {
+        let project = self
+            .get_project(id)?
+            .ok_or_else(|| Error::ProjectNotFound { id: id.to_owned() })?;
+        if let Some(process) = self.list_processes(id)?.into_iter().find(|process| {
+            matches!(process.state.as_str(), "starting" | "running" | "orphaned")
+                || process.pid.is_some()
+        }) {
+            return Err(Error::ProjectBusy {
+                id: id.to_owned(),
+                state: format!(
+                    "{} (service {}). Stop the project first",
+                    process.state, process.service_id
+                ),
+            });
+        }
+        Ok(project)
+    }
+
+    /// Detach an idle project while leaving its source and local files in place.
+    /// The engine checks its in-memory operations before entering this transaction.
+    pub fn forget_project(&self, id: &str) -> Result<()> {
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )
+        .map_err(|source| Error::database("begin project forget", source))?;
+        let project = self.require_stopped_project(id)?;
+        let published: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM publications WHERE project_id = ?1)",
+                params![id],
+                |row| row.get(0),
+            )
+            .map_err(|source| Error::database("check project publication", source))?;
+        if published {
+            return Err(Error::ProjectBusy {
+                id: id.to_owned(),
+                state: "published. Unpublish the site before forgetting it".into(),
+            });
+        }
+        tx.execute(
+            "INSERT INTO forgotten_project_roots (id, root) VALUES (?1, ?2)
+             ON CONFLICT (id) DO NOTHING",
+            params![id, project.root],
+        )
+        .map_err(|source| Error::database("reserve retained project owner", source))?;
+        // Schema 8 cascades scope selections, scope environments and service observations.
+        // Older tables intentionally do not have foreign keys to projects.
+        for sql in [
+            "DELETE FROM scope_selection_history WHERE project_id = ?1",
+            "DELETE FROM processes WHERE project_id = ?1",
+            "DELETE FROM db_bindings WHERE project_id = ?1",
+            "DELETE FROM project_sqlite WHERE project_id = ?1",
+        ] {
+            tx.execute(sql, params![id])
+                .map_err(|source| Error::database("detach project state", source))?;
+        }
+        // Older manifests could use "default", the owner of the shared global selections.
+        if id != crate::install::DEFAULT_PROJECT {
+            for sql in [
+                "DELETE FROM selections WHERE project_id = ?1",
+                "DELETE FROM selection_history WHERE project_id = ?1",
+            ] {
+                tx.execute(sql, params![id])
+                    .map_err(|source| Error::database("detach project selections", source))?;
+            }
+        }
+        tx.execute("DELETE FROM projects WHERE id = ?1", params![id])
+            .map_err(|source| Error::database("detach project registration", source))?;
+        self.record_event("project_forget", id)?;
+        tx.commit()
+            .map_err(|source| Error::database("commit project forget", source))
     }
 
     /// Register a generated project and its exact scope bindings together.
@@ -919,6 +1025,26 @@ impl Store {
             tx.commit()
                 .map_err(|source| Error::database("commit migration 8", source))?;
         }
+        if self.schema_version()? < 9 {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .map_err(|source| Error::database("begin migration 9", source))?;
+            tx.execute_batch(
+                "CREATE TABLE forgotten_project_roots (
+                    id TEXT PRIMARY KEY,
+                    root TEXT NOT NULL
+                );",
+            )
+            .map_err(|source| Error::database("apply migration 9", source))?;
+            tx.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (9, ?1)",
+                params![now_unix()],
+            )
+            .map_err(|source| Error::database("record migration 9", source))?;
+            tx.commit()
+                .map_err(|source| Error::database("commit migration 9", source))?;
+        }
         Ok(())
     }
 
@@ -949,7 +1075,6 @@ impl Store {
         if self.schema_version()? < 8 {
             return Ok(None);
         }
-        use rusqlite::OptionalExtension;
         self.conn.query_row("SELECT package_id FROM scope_selections WHERE project_id=?1 AND scope_id=?2 AND role=?3",params![project,scope,role],|row|row.get(0)).optional()
             .map_err(|source|Error::database("read scope selection",source))
     }
@@ -991,7 +1116,6 @@ impl Store {
     }
 
     pub fn get_scope_environment(&self, project: &str, scope: &str) -> Result<Option<String>> {
-        use rusqlite::OptionalExtension;
         self.conn
             .query_row(
                 "SELECT path FROM scope_environments WHERE project_id=?1 AND scope_id=?2",
@@ -1012,7 +1136,6 @@ impl Store {
         project: &str,
         service: &str,
     ) -> Result<Option<ServiceObservationRecord>> {
-        use rusqlite::OptionalExtension;
         self.conn.query_row("SELECT project_id,service_id,readiness_state,http_status FROM service_observations WHERE project_id=?1 AND service_id=?2",params![project,service],|row|Ok(ServiceObservationRecord{project_id:row.get(0)?,service_id:row.get(1)?,readiness_state:row.get(2)?,http_status:row.get(3)?})).optional().map_err(|source|Error::database("read service observation",source))
     }
 
@@ -1355,7 +1478,7 @@ mod tests {
         let dir = temp_dir();
         {
             let store = Store::open(&dir).expect("open");
-            assert_eq!(store.schema_version().expect("version"), 8);
+            assert_eq!(store.schema_version().expect("version"), 9);
             store.put("display_name", "Ada").expect("put");
             assert_eq!(
                 store.last_event().expect("event").as_deref(),
@@ -1363,12 +1486,120 @@ mod tests {
             );
         }
         let store = Store::open(&dir).expect("reopen");
-        assert_eq!(store.schema_version().expect("version"), 8);
+        assert_eq!(store.schema_version().expect("version"), 9);
         assert_eq!(
             store.get("display_name").expect("get").as_deref(),
             Some("Ada")
         );
         assert!(store.get("missing").expect("missing").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn forget_preserves_global_selection_and_rolls_back_failed_detach() {
+        let dir = temp_dir();
+        {
+            let store = Store::open(&dir).unwrap();
+            let project = ProjectRecord {
+                id: "default".into(),
+                name: "default".into(),
+                root: "original-root".into(),
+            };
+            store.insert_project(&project).unwrap();
+            store
+                .insert_package(&PackageRecord {
+                    id: "fixture".into(),
+                    kind: "runtime".into(),
+                    name: "node".into(),
+                    version: "1.0.0".into(),
+                    target: crate::current_target().into(),
+                    source: "existing".into(),
+                    path: "/external".into(),
+                    launch: "/external/node".into(),
+                    digest: None,
+                    removable: false,
+                })
+                .unwrap();
+            store.select_package("default", "node", "fixture").unwrap();
+            store
+                .record_selection_history("default", "node", "fixture", Some("previous"))
+                .unwrap();
+            store
+                .select_scope_package("default", "app", "node", "fixture")
+                .unwrap();
+            store
+                .bind_scope_environment("default", "app", "local-env")
+                .unwrap();
+            store
+                .upsert_sqlite(&SqliteRecord {
+                    project_id: project.id.clone(),
+                    path: "local-data.sqlite".into(),
+                })
+                .unwrap();
+            store
+                .conn
+                .execute_batch(
+                    "DROP TABLE forgotten_project_roots;
+                     DELETE FROM schema_migrations WHERE version = 9;",
+                )
+                .unwrap();
+        }
+        {
+            let readonly = Store::open_read_only(&dir).unwrap().unwrap();
+            assert_eq!(readonly.schema_version().unwrap(), 8);
+            readonly
+                .validate_project_root_id("default", "another-root")
+                .unwrap();
+        }
+        {
+            let store = Store::open(&dir).unwrap();
+            assert_eq!(store.schema_version().unwrap(), 9);
+            store
+                .conn
+                .execute_batch(
+                    "CREATE TEMP TRIGGER reject_detach BEFORE DELETE ON projects
+                     BEGIN SELECT RAISE(ABORT, 'test rollback'); END;",
+                )
+                .unwrap();
+            assert!(store.forget_project("default").is_err());
+            assert!(store.get_project("default").unwrap().is_some());
+            assert!(store.get_sqlite("default").unwrap().is_some());
+            store
+                .validate_project_root_id("default", "another-root")
+                .unwrap();
+            store
+                .conn
+                .execute_batch("DROP TRIGGER reject_detach;")
+                .unwrap();
+            store.forget_project("default").unwrap();
+            assert!(store.get_project("default").unwrap().is_none());
+            assert!(store.get_sqlite("default").unwrap().is_none());
+            assert!(store.scope_selections("default").unwrap().is_empty());
+            assert!(store
+                .get_scope_environment("default", "app")
+                .unwrap()
+                .is_none());
+            assert_eq!(
+                store.get_selection("default", "node").unwrap().as_deref(),
+                Some("fixture")
+            );
+            assert_eq!(
+                store
+                    .previous_selection("default", "node")
+                    .unwrap()
+                    .as_deref(),
+                Some("previous")
+            );
+            let history: i64 = store
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM scope_selection_history WHERE project_id = 'default'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(history, 0);
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1424,8 +1655,17 @@ mod tests {
                     detail: "kept".into(),
                 })
                 .unwrap();
-            // Remove precisely migration 8's additions to reproduce the schema-7 input.
-            store.conn.execute_batch("DROP TABLE scope_selections; DROP TABLE scope_selection_history; DROP TABLE scope_environments; DROP TABLE service_observations; DELETE FROM schema_migrations WHERE version=8;").unwrap();
+            store
+                .conn
+                .execute_batch(
+                    "DROP TABLE forgotten_project_roots;
+                     DROP TABLE scope_selections;
+                     DROP TABLE scope_selection_history;
+                     DROP TABLE scope_environments;
+                     DROP TABLE service_observations;
+                     DELETE FROM schema_migrations WHERE version >= 8;",
+                )
+                .unwrap();
         }
         {
             let readonly = Store::open_read_only(&dir).unwrap().unwrap();
@@ -1440,7 +1680,7 @@ mod tests {
         }
         {
             let store = Store::open(&dir).unwrap();
-            assert_eq!(store.schema_version().unwrap(), 8);
+            assert_eq!(store.schema_version().unwrap(), 9);
             assert_eq!(
                 store.get_selection("legacy", "python").unwrap().as_deref(),
                 Some("python-old")

@@ -23,7 +23,7 @@ All workers may read existing documentation. Runtime caches and test data belong
 
 ## Remaining work - 6 November 2026
 
-Stage 11 desktop acceptance passed on Windows. Stage 12.1 read-only import detection is ready. Earlier target checks remain pending. Detailed tasks, acceptance, ownership boundaries and handoffs are in DEVELOPMENT_PLAN.md.
+Stage 12 desktop acceptance passed on Windows. Stage 13.1 shared component operations are ready. Earlier target checks remain pending. Detailed tasks, acceptance, ownership boundaries and handoffs are in DEVELOPMENT_PLAN.md.
 
 | ID | Status / owner | Bounded scope | Dependency |
 | --- | --- | --- | --- |
@@ -31,8 +31,8 @@ Stage 11 desktop acceptance passed on Windows. Stage 12.1 read-only import detec
 | S9-CONTRACTS | Done on Windows / coordinator; Mac pending | Tasks 9.1-9.4 implemented; accepted contract in decisions/0008-project-scopes.md; evidence in S9-INTEGRATE.md | Native scope isolation, migration/reopen, worker/TCP/HTTP/PHP readiness, pure preview and client boundaries accepted; repeat Mac checks later |
 | S10-DESKTOP | Done on Windows / coordinator | Tasks 10.1-10.4. Workspace, resources, activity and logs. | Native smoke and regression gates passed. Mac pending. See S10-DESKTOP.md. |
 | S11-CREATE | Done on Windows / coordinator; Mac pending | Versioned recipes, safe plan and apply, and four desktop starter flows | All four starter flows passed, including managed CPython download and FastAPI reload. See S11-CREATE.md. |
-| S12-IMPORT | Ready / unassigned | Start with 12.1 read-only detection, then execute tasks 12.2–12.4 and the stage acceptance checks | Stages 9–11 on the Windows baseline. |
-| S13-COMPONENTS | Waiting / unassigned | Unify components, dependencies and PHP extensions; execute tasks 13.1–13.4 and its acceptance checks | Stages 8A and 9–12. |
+| S12-IMPORT | Done on Windows / coordinator; Mac pending | Bounded detection and launch suggestions, configuration review and safe stopped-project forget | Native desktop and CLI flows passed. See S12-IMPORT.md. |
+| S13-COMPONENTS | Ready / unassigned | Start with 13.1 shared component operations, then execute tasks 13.2–13.4 and their acceptance checks | Stages 8A and 9–12 on the Windows baseline. |
 | S14-DATABASES | Waiting / unassigned | Complete project database workflows; execute tasks 14.1–14.4 and its acceptance checks | Stages 9–10 and 12; existing Stage 6 providers. |
 | S15-WEB | Waiting / unassigned | Complete sites, HTTPS and desktop settings; execute tasks 15.1–15.4 and its acceptance checks | Stages 9–10 and 12; 8A PHP integration and existing Stage 5. |
 | S16-USABILITY | Waiting / unassigned | Finish desktop usability and failure recovery; execute tasks 16.1–16.4 and its acceptance checks | Stages 10–15. |
@@ -116,3 +116,14 @@ Reviewed on 6 November 2026. See [desktop acceptance](evidence/S10-DESKTOP.md). 
 
 Reviewed on 6 November 2026. The managed download retry, four Windows flows
 and remaining macOS acceptance are recorded in [Stage 11 evidence](evidence/S11-CREATE.md).
+
+## Stage 12 assignments
+
+| Slice | Owner | Scope |
+| --- | --- | --- |
+| 12.1–12.2 detection | Sol medium worker | Read-only evidence, bounded traversal and launch suggestions |
+| 12.3–12.4 desktop | Luna medium worker | Import review and project Configuration form |
+| 12.4 forget | Sol medium worker | Active-operation guard, store detachment and integration test |
+| Integration | Coordinator | Config preview/apply, protocol, CLI and Tauri wiring, native acceptance and status |
+
+Reviewed on 6 November 2026. [Stage 12 evidence](evidence/S12-IMPORT.md)

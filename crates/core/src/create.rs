@@ -164,6 +164,9 @@ fn snapshot(data: &Path, request: &CreateRequest) -> Result<Snapshot> {
     let target = parent.join(&request.name);
     let target_text = path_text(plain_path(target.clone()))?;
     let store = Store::open_read_only(data)?;
+    if let Some(store) = &store {
+        store.validate_project_root_id(&request.name, &target_text)?;
+    }
     let registered = check_destination(data, store.as_ref(), &parent, &target, &request.name)?;
 
     let mut inputs = Sha256::new();
@@ -290,7 +293,7 @@ fn validate_recipe_path(relative: &str) -> Result<()> {
     Ok(())
 }
 
-fn canonical_parent(parent: &Path) -> Result<PathBuf> {
+pub(crate) fn canonical_parent(parent: &Path) -> Result<PathBuf> {
     if !parent.is_absolute() || parent.components().any(|c| c == Component::ParentDir) {
         return Err(failed(
             "select an existing absolute project parent directory",
@@ -776,7 +779,7 @@ fn real_directory(meta: &fs::Metadata) -> bool {
     meta.is_dir() && !is_redirect(meta)
 }
 
-fn is_redirect(meta: &fs::Metadata) -> bool {
+pub(crate) fn is_redirect(meta: &fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
@@ -789,7 +792,7 @@ fn is_redirect(meta: &fs::Metadata) -> bool {
     }
 }
 
-fn open_directory(path: &Path) -> Result<File> {
+pub(crate) fn open_directory(path: &Path) -> Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(windows)]
@@ -828,7 +831,7 @@ fn directory_identity(path: &Path) -> Result<String> {
 }
 
 #[cfg(unix)]
-fn file_identity(file: &File) -> Result<String> {
+pub(crate) fn file_identity(file: &File) -> Result<String> {
     use std::os::unix::fs::MetadataExt;
     let meta = file
         .metadata()
@@ -842,7 +845,7 @@ fn file_identity(file: &File) -> Result<String> {
 }
 
 #[cfg(windows)]
-fn file_identity(file: &File) -> Result<String> {
+pub(crate) fn file_identity(file: &File) -> Result<String> {
     use std::mem::MaybeUninit;
     use std::os::windows::io::AsRawHandle;
 
@@ -880,7 +883,7 @@ fn file_identity(file: &File) -> Result<String> {
 }
 
 #[cfg(windows)]
-fn publish(_parent: &File, stage: &Path, target: &Path) -> io::Result<()> {
+pub(crate) fn publish(_parent: &File, stage: &Path, target: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
     #[link(name = "kernel32")]
@@ -905,7 +908,7 @@ fn publish(_parent: &File, stage: &Path, target: &Path) -> io::Result<()> {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn publish(parent: &File, stage: &Path, target: &Path) -> io::Result<()> {
+pub(crate) fn publish(parent: &File, stage: &Path, target: &Path) -> io::Result<()> {
     use std::ffi::CString;
     use std::os::fd::AsRawFd;
     use std::os::unix::ffi::OsStrExt;
@@ -946,7 +949,7 @@ fn publish(parent: &File, stage: &Path, target: &Path) -> io::Result<()> {
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-fn publish(_parent: &File, _stage: &Path, _target: &Path) -> io::Result<()> {
+pub(crate) fn publish(_parent: &File, _stage: &Path, _target: &Path) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }
 

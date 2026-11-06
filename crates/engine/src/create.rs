@@ -17,16 +17,20 @@ pub fn start(
 ) -> Result<Outcome> {
     let claim = Claim::acquire(data_dir, &plan.request.name)?;
     let plan = verify_create_plan(data_dir, plan)?;
-    let (id, cancel) = tasks.start(format!("create project {}", plan.request.name));
+    Store::open(data_dir)?.validate_project_root_id(&plan.request.name, &plan.target)?;
+    let (id, cancel) = tasks.start(
+        format!("create project {}", plan.request.name),
+        &plan.request.name,
+    );
     let worker_id = id.clone();
     let data_dir = data_dir.to_path_buf();
     let jobs = Arc::clone(jobs);
     let board = Arc::clone(tasks);
     tokio::task::spawn_blocking(move || {
-        let _claim = claim;
         let result = apply(&data_dir, &jobs, &plan, &cancel, |message| {
             board.progress(&worker_id, message);
         });
+        drop(claim);
         match result {
             Ok(message) => board.finish(&worker_id, "succeeded", &message),
             Err(Error::Cancelled { .. }) => board.finish(

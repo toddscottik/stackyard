@@ -5,6 +5,7 @@ mod control;
 mod create;
 mod database;
 mod endpoint;
+mod forget;
 mod front;
 mod group;
 mod jobs;
@@ -32,6 +33,26 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 pub use cache::Caches;
 pub use front::Front;
 pub use stackyard_core::Error as EngineError;
+
+fn require_configurable(
+    store: &Store,
+    tasks: &TaskBoard,
+    supervisor: &Supervisor,
+    project_id: &str,
+) -> Result<()> {
+    forget::require_idle(store, tasks, supervisor, project_id)?;
+    if store
+        .list_publications()?
+        .iter()
+        .any(|row| row.project_id == project_id)
+    {
+        return Err(Error::ProjectBusy {
+            id: project_id.into(),
+            state: "published through Apache. Unpublish its site first".into(),
+        });
+    }
+    Ok(())
+}
 
 pub fn serve(data_dir: &Path) -> Result<()> {
     let data_dir = prepare_data_dir(data_dir)?;
@@ -128,12 +149,25 @@ where
             error: Some(err.to_string()),
         },
     };
-    send(&mut *stream, &response).await?;
-    stream
-        .shutdown()
-        .await
-        .map_err(|source| Error::io("close engine reply", source))?;
-    Ok(matches!(request.cmd, Command::Stop) && response.error.is_none())
+    let stopped = matches!(request.cmd, Command::Stop) && response.error.is_none();
+    let delivery = async {
+        send(&mut *stream, &response).await?;
+        stream
+            .shutdown()
+            .await
+            .map_err(|source| Error::io("close engine reply", source))
+    }
+    .await;
+    if stopped {
+        // Shutdown already stopped owned resources. A client timing out while
+        // they settle must not leave the engine accepting more requests.
+        if let Err(error) = delivery {
+            eprintln!("deliver engine stop reply: {error}");
+        }
+    } else {
+        delivery?;
+    }
+    Ok(stopped)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -286,6 +320,42 @@ async fn dispatch(
         Command::ImportProject { path } => Ok(Outcome::Project {
             project: import_project(data_dir, Path::new(path))?,
         }),
+        Command::InspectConfig { path } => Ok(Outcome::ConfigInspection {
+            inspection: Box::new(stackyard_core::configuration::inspect_config(
+                store,
+                Path::new(path),
+            )?),
+        }),
+        Command::PreviewConfig { draft } => Ok(Outcome::ConfigReview {
+            review: Box::new(stackyard_core::configuration::preview_config(store, draft)?),
+        }),
+        Command::ApplyConfig { draft, fingerprint } => {
+            if let Some(project) =
+                stackyard_core::configuration::registered_project(store, Path::new(&draft.root))?
+            {
+                require_configurable(store, tasks, supervisor, &project.id)?;
+            }
+            Ok(Outcome::Project {
+                project: stackyard_core::configuration::apply_config(
+                    data_dir,
+                    store,
+                    draft,
+                    fingerprint,
+                )?,
+            })
+        }
+        Command::ReloadProject { project_id } => {
+            require_configurable(store, tasks, supervisor, project_id)?;
+            Ok(Outcome::Project {
+                project: stackyard_core::configuration::reload_config(data_dir, store, project_id)?,
+            })
+        }
+        Command::ForgetProject { project_id } => {
+            forget::forget_project(store, tasks, supervisor, project_id)?;
+            Ok(Outcome::ProjectForgotten {
+                project_id: project_id.clone(),
+            })
+        }
         Command::ListProjects => Ok(Outcome::Projects {
             projects: list_project_views(data_dir)?,
         }),
@@ -693,4 +763,43 @@ fn operation_outcome(jobs: &Jobs, id: &str) -> Result<Outcome> {
         total: operation.total.load(std::sync::atomic::Ordering::Relaxed),
         message: operation.message,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn stop_exits_even_when_the_client_cannot_receive_the_reply() {
+        let data = prepare_data_dir(&stackyard_core::disposable_dir("stop-reply")).unwrap();
+        let store = Store::open(&data).unwrap();
+        let (mut client, mut server) = tokio::io::duplex(4096);
+        send(
+            &mut client,
+            &Request {
+                v: API_VERSION,
+                id: "stop-reply".into(),
+                cmd: Command::Stop,
+            },
+        )
+        .await
+        .unwrap();
+        drop(client);
+        let stopped = handle_client(
+            &mut server,
+            &store,
+            &data,
+            &Jobs::new(),
+            &TaskBoard::new(),
+            &supervisor::new(data.clone()),
+            &Arc::new(front::Front::new(data.clone())),
+            &Arc::new(database::Databases::new(data.clone())),
+            &cache::Caches::new(data.clone()),
+        )
+        .await
+        .unwrap();
+        assert!(stopped);
+        drop(store);
+        std::fs::remove_dir_all(data).unwrap();
+    }
 }

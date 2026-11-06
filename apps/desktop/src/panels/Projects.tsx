@@ -3,6 +3,8 @@ import { api, type Front, type Installed, type Project } from "../api";
 import { recalled, remember } from "../preferences";
 import { useAction } from "../useAction";
 import { Logs } from "./Logs";
+import { ProjectConfiguration, ProjectImport } from "./ProjectConfiguration";
+import "./project-configuration.css";
 
 type DependencyInput = {
   projectId: string;
@@ -58,47 +60,34 @@ type ProjectsProps = Omit<WorkspaceProps, "project" | "dependencyBusy"> & {
   workspaceRequest: number;
   onSelect: (id: string) => void;
   onImport: (project: Project) => void;
+  onForget: (id: string) => void;
   isDependencyBusy: (id: string) => boolean;
 };
 
 export function Projects({
-  projects, selected, workspaceRequest, onSelect, onImport, isDependencyBusy, ...workspace
+  projects, selected, workspaceRequest, onSelect, onImport, onForget, isDependencyBusy, ...workspace
 }: ProjectsProps) {
-  const [path, setPath] = useState("");
   const { states, run } = useAction();
+  const [importOpen, setImportOpen] = useState(false);
   const { enabled, front, onFront } = workspace;
   const lifecycleKey = `lifecycle.${selected?.id ?? ""}`;
   const running = projects.reduce((count, project) =>
     count + project.services.filter((service) => service.state === "running").length, 0);
+  const showImport = importOpen || projects.length === 0;
   return (
     <>
       <p className="finding">{projects.length
         ? `${running} ${running === 1 ? "service" : "services"} running`
         : "Import a project to manage its services."}</p>
-      <div className={selected ? "split picked" : "split"}>
+      {showImport ? <div className="project-import-panel">
+        {projects.length > 0 && <button type="button" className="btn" onClick={() => setImportOpen(false)}>Back to projects</button>}
+        <ProjectImport enabled={enabled} onImport={(project) => {
+          onImport(project);
+          setImportOpen(false);
+        }} />
+      </div> : <div className={selected ? "split picked" : "split"}>
         <section className="pane list-pane" aria-label="Project list">
-          <form onSubmit={(event) => {
-            event.preventDefault();
-            if (!path.trim() || !enabled) return;
-            void run("import", async () => {
-              onImport(await api.importProject(path.trim()));
-              setPath("");
-            });
-          }}>
-            <div className="field">
-              <label htmlFor="project-path">Project folder</label>
-              <input id="project-path" className="input" value={path} onChange={(event) => setPath(event.target.value)}
-                placeholder="Path to a folder with stackyard.toml" />
-            </div>
-            <button type="submit" className={selected ? "btn" : "btn primary"}
-              disabled={!enabled || !path.trim() || states.import?.pending}>
-              {states.import?.pending ? "Importing…" : "Import"}
-            </button>
-            {states.import?.error ? <p role="alert" className="action-error">{states.import.error}</p> : null}
-          </form>
-          {projects.length === 0 ? (
-            <p className="empty">Import a folder containing stackyard.toml to add a project.</p>
-          ) : (
+          <button type="button" className="btn" onClick={() => setImportOpen(true)}>Import project</button>
             <ul className="slips">
               {projects.map((project) => {
                 const state = projectState(project);
@@ -115,11 +104,10 @@ export function Projects({
                 </li>;
               })}
             </ul>
-          )}
         </section>
         <section className="pane detail-pane" aria-labelledby="detail-heading">
           <button type="button" className="btn back" onClick={() => onSelect("")}>All projects</button>
-          {selected ? <Workspace key={`${selected.id}:${workspaceRequest}`} project={selected} {...workspace}
+          {selected ? <Workspace key={`${selected.id}:${workspaceRequest}`} project={selected} onForget={onForget} {...workspace}
             dependencyBusy={isDependencyBusy(selected.id)} lifecycle={states[lifecycleKey]}
             onLifecycle={(invoke) => run(lifecycleKey, async () => {
               try { workspace.onProject(await invoke(selected.id)); }
@@ -128,11 +116,11 @@ export function Projects({
             <><h2 id="detail-heading">No project selected</h2><p className="empty">Choose a project to see its services.</p></>
           )}
         </section>
-      </div>
+      </div>}
       {projects.length === 0 ? (
         <section className="block" aria-label="Manifest example">
           <h2>The manifest</h2>
-          <p className="hint">Import reads stackyard.toml from the selected folder. The command is an argument list.</p>
+          <p className="hint">Import can review an existing stackyard.toml or prepare one from the selected folder.</p>
           <pre className="output">{MANIFEST_EXAMPLE}</pre>
         </section>
       ) : null}
@@ -167,11 +155,12 @@ ready_path = "/"
 service = "web"
 host = "site.localhost"`;
 
-const tabs = ["Overview", "Dependencies", "Logs", "Site"] as const;
+const tabs = ["Overview", "Dependencies", "Logs", "Site", "Configuration"] as const;
 type Tab = typeof tabs[number];
 
-function Workspace({ project, packages, front, enabled, visible, onFront, refreshProjects,
-  onDependency, dependencyBusy, onActivity, lifecycle, onLifecycle }: WorkspaceProps & {
+function Workspace({ project, packages, front, enabled, visible, onFront, onProject, refreshProjects,
+  onDependency, dependencyBusy, onActivity, lifecycle, onLifecycle, onForget }: WorkspaceProps & {
+  onForget: (id: string) => void;
   lifecycle?: { pending: boolean; error: string };
   onLifecycle: (invoke: (id: string) => Promise<Project>) => Promise<boolean>;
 }) {
@@ -221,6 +210,8 @@ function Workspace({ project, packages, front, enabled, visible, onFront, refres
             busy={dependencyBusy} start={onDependency} onActivity={onActivity} /> : null}
           {tab === item && item === "Logs" ? <Logs projectId={project.id} services={project.services} enabled={enabled && visible} /> : null}
           {tab === item && item === "Site" ? <Site projectId={project.id} front={front} enabled={enabled} onFront={onFront} /> : null}
+          {tab === item && item === "Configuration" ? <ProjectConfiguration project={project} enabled={enabled}
+            onProject={onProject} onForget={() => onForget(project.id)} /> : null}
         </div>
       ))}
     </>

@@ -79,6 +79,22 @@ pub enum Command {
     ImportProject {
         path: String,
     },
+    InspectConfig {
+        path: String,
+    },
+    PreviewConfig {
+        draft: Box<crate::configuration::ConfigDraft>,
+    },
+    ApplyConfig {
+        draft: Box<crate::configuration::ConfigDraft>,
+        fingerprint: String,
+    },
+    ReloadProject {
+        project_id: String,
+    },
+    ForgetProject {
+        project_id: String,
+    },
     ListProjects,
     SelectScopePackage {
         project_id: String,
@@ -354,6 +370,15 @@ pub enum Outcome {
     },
     Projects {
         projects: Vec<crate::project::ProjectView>,
+    },
+    ConfigInspection {
+        inspection: Box<crate::configuration::ConfigInspection>,
+    },
+    ConfigReview {
+        review: Box<crate::configuration::ConfigReview>,
+    },
+    ProjectForgotten {
+        project_id: String,
     },
     Logs {
         project_id: String,

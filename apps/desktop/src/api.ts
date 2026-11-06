@@ -185,6 +185,25 @@ export type ProjectPreview = {
   diagnostics: Diagnostic[];
 };
 
+export type ConfigDiagnostic = { code: string; severity: string; field: string; message: string };
+export type ConfigScope = {
+  id: string; directory: string; runtime: string; manager: string; lockfile_root: string; environment: string;
+};
+export type ConfigService = {
+  id: string; scope: string; command: string[]; working_directory: string; protocol: string; port: string;
+};
+export type ConfigSite = { host: string; handler: string; service: string; root: string };
+export type ConfigForm = { name: string; scopes: ConfigScope[]; services: ConfigService[]; site: ConfigSite | null };
+export type ConfigInspection = {
+  root: string; project_id: string | null; revision: string; existing: boolean; form: ConfigForm | null;
+  evidence: { path: string; detail: string; confidence: string }[]; diagnostics: ConfigDiagnostic[];
+};
+export type ConfigDraft = { root: string; revision: string; form: ConfigForm | null };
+export type ConfigReview = {
+  fingerprint: string; manifest_text: string;
+  preview: { can_apply: boolean; diagnostics: ConfigDiagnostic[] };
+};
+
 export const api = {
   recipes: () => invoke<RecipeInfo[]>("list_recipes"),
   pickProjectParent: () => invoke<string | null>("pick_project_parent"),
@@ -214,6 +233,11 @@ export const api = {
     invoke<void>("select_package", { projectId, packageId }),
   projects: () => invoke<Project[]>("list_projects"),
   importProject: (path: string) => invoke<Project>("import_project", { path }),
+  inspectConfig: (path: string) => invoke<ConfigInspection>("inspect_config", { path }),
+  previewConfig: (draft: ConfigDraft) => invoke<ConfigReview>("preview_config", { draft }),
+  applyConfig: (draft: ConfigDraft, fingerprint: string) => invoke<Project>("apply_config", { draft, fingerprint }),
+  reloadProject: (id: string) => invoke<Project>("reload_project", { projectId: id }),
+  forgetProject: (id: string) => invoke<void>("forget_project", { projectId: id }),
   project: (projectId: string) => invoke<Project>("project_status", { projectId }),
   startProject: (projectId: string) => invoke<Project>("start_project", { projectId }),
   stopProject: (projectId: string) => invoke<Project>("stop_project", { projectId }),

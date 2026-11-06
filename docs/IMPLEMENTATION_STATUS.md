@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 6 November 2026 (Stage 11 Windows desktop acceptance).
+Updated: 6 November 2026 (Stage 12 Windows desktop acceptance).
 
 ## Completed preparation
 
@@ -30,7 +30,7 @@ Updated: 6 November 2026 (Stage 11 Windows desktop acceptance).
 | 9: Define project scopes and launch contracts | Windows implementation/acceptance complete 5 November: schema 2 scopes, migration 8, typed readiness, pure preview and client adapters. Mac pending | Repeat native scope/readiness checks on macOS 14.5 when available; Stage 10 desktop workspace is ready to begin |
 | 10: Build the shared desktop workspace and activity layer | Done on Windows. Remembered workspace, resource ownership, Activity and log tail verified. Mac pending. | Run the native Mac smoke when available. |
 | 11: Create runnable projects from the desktop | Done on Windows. All four desktop starter flows passed, including FastAPI with managed CPython and reload. Mac pending. | Begin Stage 12.1 read-only import detection. Repeat desktop acceptance on macOS 14.5 arm64 when available. |
-| 12: Import applications and edit their configuration | Not started | Existing applications can be added without hand-writing stackyard.toml, and their configuration can be changed safely afterward. |
+| 12: Import applications and edit their configuration | Done on Windows. Read-only detection, checked configuration save, reload and stopped-project forget passed. Mac pending. | Begin Stage 13.1 shared component operations. Repeat the desktop import checks on macOS 14.5 arm64 when available. |
 | 13: Unify components, dependencies and PHP extensions | Not started | Global Components and each project's Stack expose the same working runtime/tool/server and extension capabilities. |
 | 14: Complete project database workflows | Not started | A project can provision or attach a database and use its credentials without manually finding secret files. |
 | 15: Complete sites, HTTPS and desktop settings | Not started | Project Site and global Web/Data settings provide the real routing and host-integration controls. |
@@ -234,3 +234,12 @@ and FastAPI downloaded and verified managed CPython. Managed downloads retry
 one transient connection or response failure within the same Activity
 operation. Stage 12.1 read-only import detection is next. Native macOS
 desktop acceptance remains pending. [Stage 11 acceptance](evidence/S11-CREATE.md)
+
+## Stage 12 coordinator handoff — 6 November 2026
+
+Windows desktop acceptance imported and ran Next.js, Flask, FastAPI, PHP
+and a mixed Next.js/FastAPI workspace. The same engine powers CLI import
+review, configuration save and reload. Schema 9 protects retained project
+paths after forget, and the native run verified SQLite data preservation.
+Stage 13.1 is next on the Windows baseline. Native macOS acceptance remains
+pending. [Stage 12 acceptance](evidence/S12-IMPORT.md)

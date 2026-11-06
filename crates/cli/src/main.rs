@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use stackyard_core::{default_data_dir, ensure_engine, roundtrip, roundtrip_within};
 use stackyard_core::{Command, Outcome};
 
+mod configure_cli;
 mod create_cli;
 
 #[tokio::main]
@@ -50,6 +51,7 @@ async fn run() -> stackyard_core::Result<()> {
         }
         [cmd] if cmd == "serve" => stackyard_engine::serve(&data_dir),
         [cmd, args @ ..] if cmd == "create" => create_cli::run(&data_dir, args).await,
+        [cmd, args @ ..] if cmd == "configure" => configure_cli::run(&data_dir, args).await,
         [cmd] if cmd == "status" => {
             let dir = ensure_engine(&data_dir).await?;
             print_outcome(&roundtrip(&dir, Command::Status).await?);
@@ -920,6 +922,10 @@ fn print_help() {
          stackyard deps recover ID [--scope DIR]\n  \
          stackyard deps cancel TASK\n  \
          stackyard preview ROOT [DRAFT_FILE]\n  \
+         stackyard configure inspect PATH\n  \
+         stackyard configure preview DRAFT.json\n  \
+         stackyard configure apply DRAFT.json FINGERPRINT\n  \
+         stackyard configure reload PROJECT | configure forget PROJECT\n  \
          stackyard create recipes\n  \
          stackyard create plan PARENT NAME RECIPE MANAGER installed:ID|catalog:ID [TOOL]\n  \
          stackyard create apply PLAN_FILE [--wait]\n  \
@@ -965,6 +971,9 @@ fn print_help() {
 
 fn print_outcome(outcome: &Outcome) {
     match outcome {
+        Outcome::ConfigInspection { inspection } => create_cli::print_json(inspection),
+        Outcome::ConfigReview { review } => create_cli::print_json(review),
+        Outcome::ProjectForgotten { project_id } => println!("Forgot {project_id}"),
         Outcome::Recipes { recipes } => create_cli::print_json(recipes),
         Outcome::CreatePlan { plan } => create_cli::print_json(plan),
         Outcome::Activity { operations, tasks } => {
